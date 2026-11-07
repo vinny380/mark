@@ -14,6 +14,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$EXT/Contents/MacOS"
 cp "$BIN/Mark" "$APP/Contents/MacOS/"
 cp Resources/Info.plist "$APP/Contents/"
 cp -R Resources/Fonts "$APP/Contents/Resources/"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 cp "$BIN/MarkFinder" "$EXT/Contents/MacOS/"
 cp Resources/MarkFinder-Info.plist "$EXT/Contents/Info.plist"
 

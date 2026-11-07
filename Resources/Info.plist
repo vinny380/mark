@@ -13,6 +13,7 @@
 	<key>NSPrincipalClass</key><string>NSApplication</string>
 	<key>NSHighResolutionCapable</key><true/>
 	<key>ATSApplicationFontsPath</key><string>Fonts</string>
+	<key>CFBundleIconFile</key><string>AppIcon</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
