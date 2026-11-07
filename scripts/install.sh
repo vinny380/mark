@@ -15,6 +15,7 @@ cp "$BIN/Mark" "$APP/Contents/MacOS/"
 cp Resources/Info.plist "$APP/Contents/"
 cp -R Resources/Fonts "$APP/Contents/Resources/"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/"
+cp scripts/mark "$APP/Contents/Resources/mark"
 cp "$BIN/MarkFinder" "$EXT/Contents/MacOS/"
 cp Resources/MarkFinder-Info.plist "$EXT/Contents/Info.plist"
 
@@ -32,4 +33,13 @@ mv "$APP" /Applications/   # move, not copy: a second Mark.app would show up twi
 pluginkit -a /Applications/Mark.app/Contents/PlugIns/MarkFinder.appex
 pluginkit -e use -i com.vinny.mark.finder
 echo "Installed /Applications/Mark.app"
+
+# `mark` in Terminal: link into ~/.local/bin (yours, usually on PATH) unless something else already owns the name.
+CLI=/Applications/Mark.app/Contents/Resources/mark
+LINK="$HOME/.local/bin/mark"
+if [ ! -e "$LINK" ] || [ "$(readlink "$LINK")" = "$CLI" ]; then
+  mkdir -p "$HOME/.local/bin" && ln -sf "$CLI" "$LINK" && echo "Linked $LINK"
+else
+  echo "Skipped linking $LINK (already exists). Add an alias: alias mark='$CLI'"
+fi
 echo "If 'New Markdown File' is missing from Finder's right-click menu: System Settings → General → Login Items & Extensions → File Providers / Finder → enable Mark."

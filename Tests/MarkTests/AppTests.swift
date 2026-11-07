@@ -317,3 +317,33 @@ private func attachments(_ s: NSAttributedString) -> [NSTextAttachment] {
     tv.jump(to: b)
     #expect(tv.selectedRange() == NSRange(location: b.location, length: 0))
 }
+
+/// Runs scripts/mark with a fake `open` that prints its arguments, from a scratch folder.
+private func runMarkCLI(_ args: [String]) throws -> (out: String, dir: URL) {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let shim = dir.appendingPathComponent("shim")
+    try FileManager.default.createDirectory(at: shim, withIntermediateDirectories: true)
+    try "#!/bin/sh\necho \"$@\"\n".write(to: shim.appendingPathComponent("open"), atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.appendingPathComponent("open").path)
+    let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("scripts/mark")
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/bin/bash")
+    p.arguments = [script.path] + args
+    p.currentDirectoryURL = dir
+    p.environment = ["PATH": shim.path + ":/usr/bin:/bin"]
+    let pipe = Pipe(); p.standardOutput = pipe
+    try p.run(); p.waitUntilExit()
+    return (String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self), dir)
+}
+
+@Test func markCLICreatesMissingNotesAndOpensThem() throws {
+    let (out, dir) = try runMarkCLI(["ideas", "plans/q3.md"])
+    #expect(out == "-a Mark ideas.md plans/q3.md\n")
+    #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("ideas.md").path))
+    #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("plans/q3.md").path))
+}
+
+@Test func markCLIWithoutArgumentsJustOpensMark() throws {
+    #expect(try runMarkCLI([]).out == "-a Mark\n")
+}

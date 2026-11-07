@@ -1,0 +1,12 @@
+#!/bin/bash
+# mark [note ...] — open Markdown notes in Mark from Terminal.
+# Notes that don't exist yet are created ("mark ideas" → ideas.md). No arguments: a new note on your Desktop.
+set -e
+[ $# -eq 0 ] && exec open -a Mark
+notes=()
+for f in "$@"; do
+  case "$f" in *.md|*.markdown|*.MD) ;; *) f="$f.md" ;; esac
+  [ -e "$f" ] || { mkdir -p "$(dirname "$f")"; : > "$f"; }
+  notes+=("$f")
+done
+exec open -a Mark "${notes[@]}"
