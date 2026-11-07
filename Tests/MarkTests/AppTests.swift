@@ -275,3 +275,37 @@ private func attachments(_ s: NSAttributedString) -> [NSTextAttachment] {
     #expect(a.first?.bounds.size == CGSize(width: 600, height: 150)) // scaled to the column
     #expect(s.string.hasSuffix("b x^2 c"))                           // inline math not rendered (offline) → its TeX
 }
+
+@MainActor @Test func copiedFromWriterShortcuts() {
+    let menu = makeMainMenu()
+    let up = String(UnicodeScalar(NSUpArrowFunctionKey)!), down = String(UnicodeScalar(NSDownArrowFunctionKey)!)
+    #expect(shortcut(menu, #selector(EditorTextView.moveLineUp(_:))) == "⌥" + up)
+    #expect(shortcut(menu, #selector(EditorTextView.moveLineDown(_:))) == "⌥" + down)
+    #expect(shortcut(menu, #selector(NSTextView.performTextFinderAction(_:)), tag: NSTextFinder.Action.showReplaceInterface.rawValue) == "⌥⌘f")
+    #expect(shortcut(menu, #selector(NSTextView.performTextFinderAction(_:)), tag: NSTextFinder.Action.nextMatch.rawValue) == "⌘g")
+    #expect(shortcut(menu, #selector(AppDelegate.makeTextBigger(_:))) == "⌘+")
+    #expect(shortcut(menu, #selector(AppDelegate.makeTextSmaller(_:))) == "⌘-")
+    #expect(shortcut(menu, #selector(AppDelegate.makeTextActualSize(_:))) == "⌘0")
+    #expect(menu.item(withTitle: "File")?.submenu?.item(withTitle: "Open Recent")?.submenu != nil)
+}
+
+@MainActor @Test func moveLineCommand() {
+    let (tv, _) = editor("a\nb\nc", NSRange(location: 2, length: 0))
+    tv.moveLineUp(nil)
+    #expect(tv.string == "b\na\nc")
+    tv.moveLineDown(nil); tv.moveLineDown(nil)
+    #expect(tv.string == "a\nc\nb")
+}
+
+@MainActor @Test func textSizeScalesEverything() {
+    defer { Theme.scale = 1 }
+    Theme.scale = 1.2
+    #expect((Theme.baseAttributes[.font] as? NSFont)?.pointSize == 18)
+    let delegate = AppDelegate()
+    delegate.makeTextActualSize(nil)
+    #expect(Theme.scale == 1)
+    delegate.makeTextBigger(nil)
+    #expect(abs(Theme.scale - 1.1) < 0.001)
+    for _ in 0..<30 { delegate.makeTextSmaller(nil) }
+    #expect(Theme.scale >= 0.7) // floor
+}

@@ -19,8 +19,20 @@ import MarkCore
     static let border = dynamic(light: 0xeaeaea, dark: 0x333333)
     static let headingSizes: [CGFloat] = [28, 22, 18, 16, 15, 15]
 
-    static let body = font("Geist-Regular", 15)
-    static let mono = NSFont(name: "GeistMono-Regular", size: 13.5) ?? .monospacedSystemFont(ofSize: 13.5, weight: .regular)
+    static let didChange = Notification.Name("MarkThemeDidChange")
+
+    /// ⌘+ / ⌘− / ⌘0. Remembered across launches.
+    static var scale: CGFloat = {
+        let v = UserDefaults.standard.double(forKey: "textScale")
+        return v > 0 ? v : 1
+    }() {
+        didSet {
+            UserDefaults.standard.set(scale, forKey: "textScale")
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
+    }
+    static var body: NSFont { font("Geist-Regular", 15 * scale) }
+    static var mono: NSFont { NSFont(name: "GeistMono-Regular", size: 13.5 * scale) ?? .monospacedSystemFont(ofSize: 13.5 * scale, weight: .regular) }
     static let paragraph: NSParagraphStyle = {
         let p = NSMutableParagraphStyle()
         p.lineHeightMultiple = 1.5
@@ -127,7 +139,7 @@ import MarkCore
     private static func apply(_ style: MarkdownStyle, _ r: NSRange, _ s: NSTextStorage, _ preview: Bool) {
         switch style {
         case .heading(let level):
-            s.addAttribute(.font, value: font("Geist-SemiBold", headingSizes[level - 1], .semibold), range: r)
+            s.addAttribute(.font, value: font("Geist-SemiBold", headingSizes[level - 1] * scale, .semibold), range: r)
         case .bold:
             refont(r, s) { font("Geist-Bold", $0.pointSize, .bold) }
         case .italic:

@@ -27,6 +27,10 @@ import MarkCore
         QuickOpen.shared.show(over: NSApp.keyWindow, folder: current) { [weak self] url in self?.open(url) }
     }
 
+    @objc func makeTextBigger(_ sender: Any?) { Theme.scale = min(2, (Theme.scale * 10 + 1).rounded() / 10) }
+    @objc func makeTextSmaller(_ sender: Any?) { Theme.scale = max(0.7, (Theme.scale * 10 - 1).rounded() / 10) }
+    @objc func makeTextActualSize(_ sender: Any?) { Theme.scale = 1 }
+
     @objc func newMarkdownFile(_ sender: Any?) {
         create(in: desktop)
     }
@@ -71,8 +75,14 @@ import MarkCore
         i.submenu = m
         return i
     }
-    let find = item("Find…", #selector(NSTextView.performTextFinderAction(_:)), "f")
-    find.tag = NSTextFinder.Action.showFindInterface.rawValue
+    func finder(_ title: String, _ action: NSTextFinder.Action, _ key: String, _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+        let i = item(title, #selector(NSTextView.performTextFinderAction(_:)), key, mods)
+        i.tag = action.rawValue
+        return i
+    }
+    let arrow = { (c: Int) in String(UnicodeScalar(c)!) }
+    let recent = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
+    recent.submenu = RecentMenu.shared.menu
 
     let main = NSMenu()
     main.addItem(submenu("Mark", [
@@ -84,6 +94,7 @@ import MarkCore
     main.addItem(submenu("File", [
         item("New", #selector(AppDelegate.newMarkdownFile(_:)), "n"),
         item("Open…", #selector(NSDocumentController.openDocument(_:)), "o"),
+        recent,
         item("Go to File…", #selector(AppDelegate.quickOpen(_:)), "p"),
         item("Save", #selector(NSDocument.save(_:)), "s"),
         .separator(),
@@ -99,7 +110,10 @@ import MarkCore
         item("Paste", #selector(NSText.paste(_:)), "v"),
         item("Select All", #selector(NSText.selectAll(_:)), "a"),
         .separator(),
-        find,
+        finder("Find…", .showFindInterface, "f"),
+        finder("Find and Replace…", .showReplaceInterface, "f", [.command, .option]),
+        finder("Find Next", .nextMatch, "g"),
+        finder("Find Previous", .previousMatch, "g", [.command, .shift]),
     ]))
     func heading(_ title: String, _ level: Int) -> NSMenuItem {
         let i = item(title, #selector(EditorTextView.setHeadingLevel(_:)), "\(level)", [.command, .option])
@@ -116,10 +130,51 @@ import MarkCore
         heading("Heading 1", 1), heading("Heading 2", 2), heading("Heading 3", 3), heading("Plain Text", 0),
         .separator(),
         item("To-do", #selector(EditorTextView.toggleTodoItem(_:)), "\r"),
+        .separator(),
+        item("Move Line Up", #selector(EditorTextView.moveLineUp(_:)), arrow(NSUpArrowFunctionKey), .option),
+        item("Move Line Down", #selector(EditorTextView.moveLineDown(_:)), arrow(NSDownArrowFunctionKey), .option),
     ]))
-    main.addItem(submenu("View", [item("Preview", #selector(EditorTextView.togglePreview(_:)), "e")]))
+    main.addItem(submenu("View", [
+        item("Preview", #selector(EditorTextView.togglePreview(_:)), "e"),
+        .separator(),
+        item("Bigger", #selector(AppDelegate.makeTextBigger(_:)), "+"),
+        item("Smaller", #selector(AppDelegate.makeTextSmaller(_:)), "-"),
+        item("Actual Size", #selector(AppDelegate.makeTextActualSize(_:)), "0"),
+    ]))
     let window = submenu("Window", [item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m")])
     main.addItem(window)
     NSApplication.shared.windowsMenu = window.submenu
     return main
+}
+
+/// File ▸ Open Recent, filled from the system's recent-documents list each time it opens.
+@MainActor final class RecentMenu: NSObject, NSMenuDelegate {
+    static let shared = RecentMenu()
+    let menu = NSMenu(title: "Open Recent")
+
+    override init() {
+        super.init()
+        menu.delegate = self
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        for url in NSDocumentController.shared.recentDocumentURLs {
+            let i = NSMenuItem(title: url.lastPathComponent, action: #selector(open(_:)), keyEquivalent: "")
+            i.target = self
+            i.representedObject = url
+            i.toolTip = url.path
+            menu.addItem(i)
+        }
+        if menu.items.isEmpty { menu.addItem(NSMenuItem(title: "No Recent Files", action: nil, keyEquivalent: "")) }
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Clear Menu", action: #selector(NSDocumentController.clearRecentDocuments(_:)), keyEquivalent: ""))
+    }
+
+    @objc private func open(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, error in
+            if let error { NSApp.presentError(error) }
+        }
+    }
 }

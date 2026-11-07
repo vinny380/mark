@@ -33,6 +33,7 @@ final class EditorTextView: NSTextView {
         typingAttributes = Theme.baseAttributes
         linkTextAttributes = [.underlineStyle: NSUnderlineStyle.single.rawValue, .cursor: NSCursor.pointingHand]
         NotificationCenter.default.addObserver(self, selector: #selector(imageLoaded), name: Images.didLoad, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(themeChanged), name: Theme.didChange, object: nil)
         registerForDraggedTypes([.fileURL, .URL, .png, .tiff])
     }
 
@@ -241,6 +242,7 @@ final class EditorTextView: NSTextView {
     private static let formatting: Set<Selector> = [
         #selector(toggleBold(_:)), #selector(toggleItalic(_:)), #selector(toggleStrikethrough(_:)),
         #selector(toggleInlineCode(_:)), #selector(insertLink(_:)), #selector(setHeadingLevel(_:)), #selector(toggleTodoItem(_:)),
+        #selector(moveLineUp(_:)), #selector(moveLineDown(_:)),
     ]
 
     /// nil = not ours, let AppKit decide.
@@ -272,6 +274,14 @@ final class EditorTextView: NSTextView {
     @objc func toggleInlineCode(_ sender: Any?) { edit { toggleWrap($0, $1, "`") } }
     @objc func insertLink(_ sender: Any?) { edit(makeLink) }
     @objc func toggleTodoItem(_ sender: Any?) { edit(toggleTodo) }
+    @objc func moveLineUp(_ sender: Any?) { edit { moveLines($0, $1, up: true) } }
+    @objc func moveLineDown(_ sender: Any?) { edit { moveLines($0, $1, up: false) } }
+
+    /// Text size changed (⌘+/⌘−/⌘0): redraw with the new sizes.
+    @objc func themeChanged() {
+        typingAttributes = Theme.baseAttributes
+        if isPreview { renderPreview() } else { restyle() }
+    }
     /// Menu item tag = heading level (0 = plain text).
     @objc func setHeadingLevel(_ sender: Any?) {
         let level = (sender as? NSMenuItem)?.tag ?? 0
