@@ -41,8 +41,16 @@ final class EditorTextView: NSTextView {
     }
 
     private func renderPreview() {
-        textStorage?.setAttributedString(Theme.preview(source, base: baseURL, maxWidth: column))
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        textStorage?.setAttributedString(Theme.preview(source, base: baseURL, maxWidth: column, dark: dark) {
+            Diagrams.shared.image($0, $1, dark: dark)
+        })
         updateImageOverlays()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        if isPreview { renderPreview() } // diagrams are drawn for light or dark
     }
 
     @objc private func imageLoaded() {

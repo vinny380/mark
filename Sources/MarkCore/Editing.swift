@@ -154,3 +154,25 @@ public func toggleTodo(_ text: String, _ sel: NSRange) -> TextEdit {
     }
     return replacePrefix(ns, sel, indentPrefix) { m in ns.substring(with: m!.range) + "- [ ] " }
 }
+
+/// ⌥↑ / ⌥↓: swap the selected line(s) with the line above/below. nil at the document edge.
+public func moveLines(_ text: String, _ sel: NSRange, up: Bool) -> TextEdit? {
+    let ns = text as NSString
+    let block = ns.lineRange(for: sel)
+    var b = ns.substring(with: block)
+    let offset = sel.location - block.location
+    if up {
+        guard block.location > 0 else { return nil }
+        let prev = ns.lineRange(for: NSRange(location: block.location - 1, length: 0))
+        var p = ns.substring(with: prev)
+        if !b.hasSuffix("\n") { b += "\n"; p.removeLast() } // block was the last line, without a newline
+        return TextEdit(range: NSRange(location: prev.location, length: NSMaxRange(block) - prev.location), replacement: b + p,
+                        selection: NSRange(location: prev.location + offset, length: sel.length))
+    }
+    guard NSMaxRange(block) < ns.length else { return nil }
+    let next = ns.lineRange(for: NSRange(location: NSMaxRange(block), length: 0))
+    var n = ns.substring(with: next)
+    if !n.hasSuffix("\n") { n += "\n"; b.removeLast() }
+    return TextEdit(range: NSRange(location: block.location, length: NSMaxRange(next) - block.location), replacement: n + b,
+                    selection: NSRange(location: block.location + len(n) + offset, length: sel.length))
+}

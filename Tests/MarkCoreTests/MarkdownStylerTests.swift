@@ -144,3 +144,39 @@ private func edits(_ t: String) -> [PreviewEdit] { MarkdownStyler.previewEdits(i
 @Test func previewReplacesImageWithOnePlaceholder() {
     #expect(edits("x ![cat](https://x/c.png) y") == [edit(2, 23, "\u{FFFC}")])
 }
+
+// MARK: Mermaid + math
+
+private func diagrams(_ t: String) -> [StyleRun] {
+    MarkdownStyler.runs(in: t).filter { if case .diagram = $0.style { true } else { false } }
+}
+
+@Test func mermaidFenceBecomesOneDiagram() {
+    let t = "```mermaid\ngraph LR\n  A-->B\n```"
+    #expect(diagrams(t) == [run(0, (t as NSString).length, .diagram(.mermaid, "graph LR\n  A-->B"))])
+    #expect(edits(t) == [edit(0, (t as NSString).length, "\u{FFFC}")])
+}
+
+@Test func plainCodeFenceIsNotADiagram() {
+    #expect(diagrams("```swift\nlet a = 1\n```").isEmpty)
+    #expect(diagrams("```mermaid\nunclosed").isEmpty) // half-typed: stays code until the fence closes
+}
+
+@Test func mathBlocks() {
+    let fenced = "```math\nx^2\n```", dollars = "$$\n\\frac{1}{2}\n$$", oneLine = "$$e=mc^2$$"
+    #expect(diagrams(fenced) == [run(0, 15, .diagram(.math(display: true), "x^2"))])
+    #expect(diagrams(dollars) == [run(0, 17, .diagram(.math(display: true), "\\frac{1}{2}"))])
+    #expect(diagrams(oneLine) == [run(0, 10, .diagram(.math(display: true), "e=mc^2"))])
+    #expect(!styles(dollars).contains(.italic)) // TeX inside isn't Markdown
+}
+
+@Test func inlineMath() {
+    #expect(diagrams("Area $\\pi r^2$ ok") == [run(5, 9, .diagram(.math(display: false), "\\pi r^2"))])
+    #expect(has("Area $\\pi r^2$ ok", run(5, 1, .syntax)))
+}
+
+@Test func moneyIsNotMath() {
+    #expect(diagrams("costs $5 and $10 today").isEmpty)
+    #expect(diagrams("a$b$c").isEmpty)
+    #expect(diagrams("`$x$`").isEmpty) // inside inline code
+}

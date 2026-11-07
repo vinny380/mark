@@ -265,3 +265,13 @@ private func attachments(_ s: NSAttributedString) -> [NSTextAttachment] {
     // first line starts at the top inset (56) and is ~22pt tall; the picture belongs right below it, not after its reserved space
     #expect(overlay.frame.minY < tv.textContainerOrigin.y + 60)
 }
+
+@MainActor @Test func previewShowsRenderedDiagramsAndFallsBackToSource() {
+    let md = "a\n```mermaid\ngraph LR\n```\nb $x^2$ c"
+    let pic = NSImage(size: NSSize(width: 1200, height: 300))
+    let s = Theme.preview(md, maxWidth: 600, dark: true) { kind, _ in kind == .mermaid ? pic : nil }
+    let a = attachments(s)
+    #expect(a.count == 1)
+    #expect(a.first?.bounds.size == CGSize(width: 600, height: 150)) // scaled to the column
+    #expect(s.string.hasSuffix("b x^2 c"))                           // inline math not rendered (offline) → its TeX
+}

@@ -1,7 +1,9 @@
 import Foundation
 
+public enum DiagramKind: Hashable, Sendable { case mermaid, math(display: Bool) }
+
 public enum MarkdownStyle: Equatable, Sendable {
-    case heading(Int), bold, italic, strike, code, codeBlock, quote, link(String), image(String), listMarker, checkbox(Bool), done, syntax
+    case heading(Int), bold, italic, strike, code, codeBlock, quote, link(String), image(String), diagram(DiagramKind, String), listMarker, checkbox(Bool), done, syntax
 }
 
 /// Preview (⌘E): replace `range` of the source with `replacement` ("" = hide).
@@ -26,6 +28,8 @@ public enum MarkdownStyler {
     private static let list = rx(#"^\s*([-*+]|\d+\.)\s"#)
     private static let code = rx(#"`[^`]+`"#)
     private static let bold = rx(#"(\*\*|__)(?=\S)(.+?)(?<=\S)\1"#)
+    // $…$ inline math: no space just inside the dollars, no digit/word right after ("$5 and $10" is money)
+    private static let inlineMath = rx(#"(?<![\\$\w])\$([^\s$](?:[^$\n]*?[^\s$\\])?)\$(?![\d$\w])"#)
     private static let strike = rx(#"~~(?=\S)(.+?)(?<=\S)~~"#)
     private static let checkbox = rx(#"^\s*[-*+] (\[([ xX])\])"#)
     private static let italic = rx(#"(?<![*_\w])([*_])(?![\s*_])(.+?)(?<![\s*_])\1(?![*_\w])"#)
@@ -35,7 +39,7 @@ public enum MarkdownStyler {
     public static func runs(in text: String) -> [StyleRun] {
         let ns = text as NSString
         var styled: [StyleRun] = [], syntax: [StyleRun] = []
-        var fenceStart: Int?
+        var fenceStart: Int?, fenceInner = 0, fenceLang = "", fenceIsDollars = false
 
         func add(_ loc: Int, _ len: Int, _ s: MarkdownStyle) {
             let r = StyleRun(range: NSRange(location: loc, length: len), style: s)
@@ -47,13 +51,28 @@ public enum MarkdownStyler {
             let base = lineRange.location, len = lineRange.length
             let whole = NSRange(location: 0, length: len)
 
-            if line.hasPrefix("```") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if fenceStart == nil, trimmed.count > 4, trimmed.hasPrefix("$$"), trimmed.hasSuffix("$$") { // $$x$$ on one line
+                add(base, len, .diagram(.math(display: true), String(trimmed.dropFirst(2).dropLast(2))))
+                add(base, len, .code)
+                return
+            }
+            let opensOrCloses = fenceStart == nil ? (line.hasPrefix("```") || trimmed == "$$")
+                                                  : (fenceIsDollars ? trimmed == "$$" : line.hasPrefix("```"))
+            if opensOrCloses {
                 add(base, len, .syntax)
                 if let start = fenceStart {
-                    add(start, NSMaxRange(lineRange) - start, .codeBlock)
+                    let end = NSMaxRange(lineRange)
+                    add(start, end - start, .codeBlock)
+                    let inner = ns.substring(with: NSRange(location: fenceInner, length: max(0, base - 1 - fenceInner)))
+                    if fenceLang == "mermaid" { add(start, end - start, .diagram(.mermaid, inner)) }
+                    if fenceLang == "math" || fenceIsDollars { add(start, end - start, .diagram(.math(display: true), inner)) }
                     fenceStart = nil
                 } else {
                     fenceStart = base
+                    fenceInner = NSMaxRange(lineRange) + 1
+                    fenceIsDollars = trimmed == "$$"
+                    fenceLang = fenceIsDollars ? "" : String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces).lowercased()
                 }
                 return
             }
@@ -86,9 +105,17 @@ public enum MarkdownStyler {
                 add(base + NSMaxRange(r) - 1, 1, .syntax)
             }
             func outsideCode(_ r: NSRange) -> Bool { !codeSpans.contains { NSIntersectionRange($0, r).length > 0 } }
+            var mathSpans: [NSRange] = []
+            for m in inlineMath.matches(in: line, range: whole) where outsideCode(m.range) {
+                mathSpans.append(m.range)
+                add(base + m.range.location, m.range.length, .diagram(.math(display: false), (line as NSString).substring(with: m.range(at: 1))))
+                add(base + m.range.location, 1, .syntax)
+                add(base + NSMaxRange(m.range) - 1, 1, .syntax)
+            }
+            func outsideCodeAndMath(_ r: NSRange) -> Bool { outsideCode(r) && !mathSpans.contains { NSIntersectionRange($0, r).length > 0 } }
 
             for (regex, style, delim) in [(bold, MarkdownStyle.bold, 2), (italic, .italic, 1), (strike, .strike, 2)] {
-                for m in regex.matches(in: line, range: whole) where outsideCode(m.range) {
+                for m in regex.matches(in: line, range: whole) where outsideCodeAndMath(m.range) {
                     add(base + m.range.location, m.range.length, style)
                     add(base + m.range.location, delim, .syntax)
                     add(base + NSMaxRange(m.range) - delim, delim, .syntax)
@@ -130,6 +157,8 @@ public enum MarkdownStyler {
                 var r = run.range
                 if s.hasPrefix("```"), NSMaxRange(r) < ns.length, ns.character(at: NSMaxRange(r)) == 10 { r.length += 1 }
                 edits.append(PreviewEdit(range: r, replacement: ""))
+            case .diagram:
+                edits.append(PreviewEdit(range: run.range, replacement: "\u{FFFC}")) // the app swaps in the rendered diagram
             case .image:
                 // whole "![alt](url)" → one object-replacement char; the app swaps in the picture
                 let start = run.range.location - 2, end = syntaxAt[NSMaxRange(run.range)].map(NSMaxRange) ?? NSMaxRange(run.range)

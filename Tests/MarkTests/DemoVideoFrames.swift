@@ -105,3 +105,41 @@ func renderDemoFrames() throws {
     try json.write(to: out.appendingPathComponent("frames.json"))
     print("demo frames:", n, "→", out.path)
 }
+
+/// Opt-in, needs internet: MARK_DEMO_OUT=<dir> swift test --filter renderDiagramPreview → <dir>/ui/diagrams.png
+@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["MARK_DEMO_OUT"] != nil))
+func renderDiagramPreview() async throws {
+    let out = URL(fileURLWithPath: ProcessInfo.processInfo.environment["MARK_DEMO_OUT"]!).appendingPathComponent("ui")
+    try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+    let doc = MarkdownDocument()
+    try doc.read(from: Data("""
+    # Release flow
+
+    ```mermaid
+    graph LR
+      A[Write] --> B{Ship?}
+      B -->|yes| C[Tweet]
+      B -->|no| A
+    ```
+
+    Euler, inline: $e^{i\\pi} + 1 = 0$ and a block:
+
+    $$
+    \\int_0^1 x^2\\,dx = \\frac{1}{3}
+    $$
+    """.utf8), ofType: "Markdown")
+    doc.makeWindowControllers()
+    let window = doc.windowControllers[0].window!
+    window.appearance = NSAppearance(named: .darkAqua)
+    window.setContentSize(NSSize(width: 1180, height: 720))
+    doc.textView!.togglePreview(nil)
+    let deadline = Date().addingTimeInterval(25) // first run downloads the libraries
+    while Date() < deadline && (doc.textView!.textStorage!.string.contains("graph LR") || doc.textView!.textStorage!.string.contains("frac")) {
+        try await Task.sleep(for: .milliseconds(200)) // yield: the renderer finishes on the main actor
+    }
+    let content = window.contentView!
+    let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds)!
+    content.cacheDisplay(in: content.bounds, to: rep)
+    try rep.representation(using: .png, properties: [:])!.write(to: out.appendingPathComponent("diagrams.png"))
+    #expect(!doc.textView!.textStorage!.string.contains("graph LR")) // rendered, not showing source
+}

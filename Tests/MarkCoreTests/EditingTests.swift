@@ -74,3 +74,14 @@ private func parse(_ marked: String) -> (String, NSRange) {
     #expect(run("- a|") { toggleTodo($0, $1) } == "- [ ] a|")
     #expect(run("a|") { toggleTodo($0, $1) } == "- [ ] a|")
 }
+
+// ⌥↑ / ⌥↓
+@Test func movesLinesUpAndDown() {
+    #expect(run("a\nb|\nc") { moveLines($0, $1, up: true) } == "b|\na\nc")
+    #expect(run("a|\nb\nc") { moveLines($0, $1, up: false) } == "b\na|\nc")
+    #expect(run("a\nb|") { moveLines($0, $1, up: true) } == "b|\na")
+    #expect(run("a|\nb") { moveLines($0, $1, up: false) } == "b\na|")
+    #expect(run("[a\nb]\nc") { moveLines($0, $1, up: false) } == "c\n[a\nb]")
+    #expect(run("a|\nb") { moveLines($0, $1, up: true) } == nil)
+    #expect(run("a\nb|") { moveLines($0, $1, up: false) } == nil)
+}

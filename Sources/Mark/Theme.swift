@@ -49,37 +49,63 @@ import MarkCore
 
     static let imageGap: CGFloat = 10
 
-    /// Read-only rendering for ⌘E: styled, with Markdown symbols removed, links clickable, images shown.
-    /// `base` resolves relative image paths; `maxWidth` is the text column (wider images scale down).
-    static func preview(_ markdown: String, base: URL? = nil, maxWidth: CGFloat = 720) -> NSAttributedString {
+    /// Read-only rendering for ⌘E: styled, with Markdown symbols removed, links clickable, images and diagrams shown.
+    /// `base` resolves relative image paths; `maxWidth` is the text column (wider pictures scale down);
+    /// `diagram` returns a rendered Mermaid/math picture if it's ready (nil → its source shows instead).
+    static func preview(_ markdown: String, base: URL? = nil, maxWidth: CGFloat = 720, dark: Bool = false,
+                        diagram: (DiagramKind, String) -> NSImage? = { _, _ in nil }) -> NSAttributedString {
         let s = NSTextStorage(string: markdown)
         let runs = MarkdownStyler.runs(in: markdown)
         apply(runs, to: s, preview: true)
         for e in MarkdownStyler.previewEdits(in: markdown).reversed() {
             s.replaceCharacters(in: e.range, with: e.replacement) // keeps the attributes of the replaced text
         }
-        let images: [(alt: String, src: String)] = runs.compactMap {
-            guard case .image(let src) = $0.style else { return nil }
-            return ((markdown as NSString).substring(with: $0.range), src)
+        enum Embed { case image(alt: String, src: String), diagram(DiagramKind, String) }
+        let embeds: [Embed] = runs.sorted { $0.range.location < $1.range.location }.compactMap {
+            switch $0.style {
+            case .image(let src): .image(alt: (markdown as NSString).substring(with: $0.range), src: src)
+            case .diagram(let kind, let src): .diagram(kind, src)
+            default: nil
+            }
         }
         let ns = s.string as NSString
         var slots: [Int] = []
         for i in 0..<ns.length where ns.character(at: i) == 0xFFFC { slots.append(i) }
-        // ponytail: a literal U+FFFC typed in the source would desync slots from images; then images are skipped.
-        guard slots.count == images.count else { return s }
-        for (at, img) in zip(slots, images).reversed() {
+        // ponytail: a literal U+FFFC typed in the source would desync slots from embeds; then embeds are skipped.
+        guard slots.count == embeds.count else { return s }
+        func block(_ picture: NSImage, _ size: CGSize, at here: NSRange) {
+            let a = NSTextAttachment()
+            a.image = picture
+            a.bounds = CGRect(origin: .zero, size: size)
+            s.replaceCharacters(in: here, with: NSAttributedString(attachment: a))
+            let p = NSMutableParagraphStyle()
+            p.paragraphSpacing = 8 // the 1.5 line height would add half a picture of air
+            s.addAttribute(.paragraphStyle, value: p, range: ns.paragraphRange(for: here))
+        }
+        for (at, embed) in zip(slots, embeds).reversed() {
             let here = NSRange(location: at, length: 1)
-            if let url = imageURL(img.src, base: base), let image = Images.image(url) {
-                let a = NSTextAttachment()
-                let size = fit(image.size, maxWidth)
-                a.image = rounded(image, size)
-                a.bounds = CGRect(origin: .zero, size: size)
-                s.replaceCharacters(in: here, with: NSAttributedString(attachment: a))
-                let p = NSMutableParagraphStyle()
-                p.paragraphSpacing = 8 // the 1.5 line height would add half an image of air
-                s.addAttribute(.paragraphStyle, value: p, range: ns.paragraphRange(for: here))
-            } else {
-                s.replaceCharacters(in: here, with: img.alt.isEmpty ? "Image" : img.alt) // loading, missing or unsupported
+            switch embed {
+            case .image(let alt, let src):
+                if let url = imageURL(src, base: base), let image = Images.image(url) {
+                    let size = fit(image.size, maxWidth)
+                    block(rounded(image, size), size, at: here)
+                } else {
+                    s.replaceCharacters(in: here, with: alt.isEmpty ? "Image" : alt) // loading, missing or unsupported
+                }
+            case .diagram(let kind, let src):
+                guard let picture = diagram(kind, src) else { // rendering, offline, or invalid: show the source
+                    s.replaceCharacters(in: here, with: NSAttributedString(string: src, attributes: [.font: mono, .foregroundColor: NSColor.secondaryLabelColor]))
+                    continue
+                }
+                let size = fit(picture.size, maxWidth)
+                if kind == .math(display: false) { // sits on the text line, centered on the lowercase letters
+                    let a = NSTextAttachment()
+                    a.image = picture
+                    a.bounds = CGRect(x: 0, y: (body.xHeight - size.height) / 2, width: size.width, height: size.height)
+                    s.replaceCharacters(in: here, with: NSAttributedString(attachment: a))
+                } else {
+                    block(picture, size, at: here)
+                }
             }
         }
         return s
@@ -112,6 +138,10 @@ import MarkCore
             s.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: r)
         case .image:
             s.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: r)
+        case .diagram(.math(display: false), _):
+            s.addAttribute(.font, value: mono, range: r) // inline $math$ reads as code while editing
+        case .diagram:
+            break // blocks are already styled as code blocks
         case .link(let url):
             s.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
             if preview, let u = URL(string: url) { s.addAttribute(.link, value: u, range: r) } // editing mode: clicks place the cursor
