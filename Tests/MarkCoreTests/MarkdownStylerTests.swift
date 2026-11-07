@@ -28,9 +28,9 @@ private func styles(_ text: String) -> [MarkdownStyle] { MarkdownStyler.runs(in:
 }
 
 @Test func listMarkersAreSyntaxNotItalic() {
-    #expect(has("* item", run(0, 1, .syntax)))
+    #expect(has("* item", run(0, 1, .listMarker)))
     #expect(!styles("* item").contains(.italic))
-    #expect(has("1. one", run(0, 2, .syntax)))
+    #expect(has("1. one", run(0, 2, .listMarker)))
 }
 
 @Test func inlineCode() {
@@ -40,14 +40,14 @@ private func styles(_ text: String) -> [MarkdownStyle] { MarkdownStyler.runs(in:
 }
 
 @Test func link() {
-    #expect(has("[a](http://x)", run(1, 1, .link)))
+    #expect(has("[a](http://x)", run(1, 1, .link("http://x"))))
     #expect(has("[a](http://x)", run(0, 1, .syntax)))
     #expect(has("[a](http://x)", run(2, 11, .syntax)))
 }
 
 @Test func quote() {
     #expect(has("> q", run(0, 3, .quote)))
-    #expect(has("> q", run(0, 1, .syntax)))
+    #expect(has("> q", run(0, 2, .syntax)))
 }
 
 @Test func fencedBlockSuppressesInlineStyles() {
@@ -74,4 +74,39 @@ private func styles(_ text: String) -> [MarkdownStyle] { MarkdownStyler.runs(in:
     let s = styles("# **a**")
     let firstSyntax = s.firstIndex(of: .syntax)!
     #expect(s[firstSyntax...].allSatisfy { $0 == .syntax })
+}
+
+// MARK: Preview (⌘E): which characters get hidden or replaced
+
+private func edit(_ loc: Int, _ len: Int, _ r: String = "") -> PreviewEdit {
+    PreviewEdit(range: NSRange(location: loc, length: len), replacement: r)
+}
+private func edits(_ t: String) -> [PreviewEdit] { MarkdownStyler.previewEdits(in: t) }
+
+@Test func previewHidesHeadingAndBoldMarkers() {
+    #expect(edits("# Hi") == [edit(0, 2)])
+    #expect(edits("a **b** c") == [edit(2, 2), edit(5, 2)])
+}
+
+@Test func previewTurnsDashesIntoBulletsAndKeepsNumbers() {
+    #expect(edits("- item") == [edit(0, 1, "•")])
+    #expect(edits("  * item") == [edit(2, 1, "•")])
+    #expect(edits("1. one") == [])
+}
+
+@Test func previewDropsFenceLinesWithTheirNewline() {
+    #expect(edits("```swift\ncode\n```") == [edit(0, 9), edit(14, 3)])
+}
+
+@Test func previewKeepsOnlyLinkText() {
+    #expect(edits("[a](http://x)") == [edit(0, 1), edit(2, 11)])
+}
+
+@Test func previewHidesQuoteMarker() {
+    #expect(edits("> q") == [edit(0, 2)])
+}
+
+@Test func previewEditsAreSortedAndDisjoint() {
+    let e = edits("# **a** `c` [l](u)\n- x\n```\ny\n```")
+    for (a, b) in zip(e, e.dropFirst()) { #expect(NSMaxRange(a.range) <= b.range.location) }
 }

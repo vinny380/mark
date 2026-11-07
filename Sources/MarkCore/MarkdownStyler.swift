@@ -1,7 +1,14 @@
 import Foundation
 
 public enum MarkdownStyle: Equatable, Sendable {
-    case heading(Int), bold, italic, code, codeBlock, quote, link, syntax
+    case heading(Int), bold, italic, code, codeBlock, quote, link(String), listMarker, syntax
+}
+
+/// Preview (⌘E): replace `range` of the source with `replacement` ("" = hide).
+public struct PreviewEdit: Equatable, Sendable {
+    public let range: NSRange
+    public let replacement: String
+    public init(range: NSRange, replacement: String) { self.range = range; self.replacement = replacement }
 }
 
 public struct StyleRun: Equatable, Sendable {
@@ -20,7 +27,7 @@ public enum MarkdownStyler {
     private static let code = rx(#"`[^`]+`"#)
     private static let bold = rx(#"(\*\*|__)(?=\S)(.+?)(?<=\S)\1"#)
     private static let italic = rx(#"(?<![*_\w])([*_])(?![\s*_])(.+?)(?<![\s*_])\1(?![*_\w])"#)
-    private static let link = rx(#"\[([^\]]+)\]\([^)]*\)"#)
+    private static let link = rx(#"\[([^\]]+)\]\(([^)]*)\)"#)
 
     public static func runs(in text: String) -> [StyleRun] {
         let ns = text as NSString
@@ -54,13 +61,13 @@ public enum MarkdownStyler {
                 add(base, m.range.length, .syntax)
             } else if line.hasPrefix(">") {
                 add(base, len, .quote)
-                add(base, 1, .syntax)
+                add(base, line.hasPrefix("> ") ? 2 : 1, .syntax)
             } else if hr.firstMatch(in: line, range: whole) != nil {
                 add(base, len, .syntax)
                 return
             } else if let m = list.firstMatch(in: line, range: whole) {
                 let marker = m.range(at: 1)
-                add(base + marker.location, marker.length, .syntax)
+                add(base + marker.location, marker.length, .listMarker)
             }
 
             let codeSpans = code.matches(in: line, range: whole).map(\.range)
@@ -81,11 +88,35 @@ public enum MarkdownStyler {
             for m in link.matches(in: line, range: whole) where outsideCode(m.range) {
                 let label = m.range(at: 1)
                 add(base + m.range.location, 1, .syntax)
-                add(base + label.location, label.length, .link)
+                add(base + label.location, label.length, .link((line as NSString).substring(with: m.range(at: 2))))
                 add(base + NSMaxRange(label), NSMaxRange(m.range) - NSMaxRange(label), .syntax)
             }
         }
         if let start = fenceStart { add(start, ns.length - start, .codeBlock) }
         return styled + syntax
+    }
+
+    /// What Preview hides: every syntax marker (fence lines with their newline), unordered list markers → "•".
+    /// Sorted, non-overlapping; apply in reverse.
+    public static func previewEdits(in text: String) -> [PreviewEdit] {
+        let ns = text as NSString
+        var edits: [PreviewEdit] = []
+        for run in runs(in: text) {
+            let s = ns.substring(with: run.range)
+            switch run.style {
+            case .syntax:
+                var r = run.range
+                if s.hasPrefix("```"), NSMaxRange(r) < ns.length, ns.character(at: NSMaxRange(r)) == 10 { r.length += 1 }
+                edits.append(PreviewEdit(range: r, replacement: ""))
+            case .listMarker where !(s.first?.isNumber ?? false):
+                edits.append(PreviewEdit(range: run.range, replacement: "•"))
+            default:
+                break
+            }
+        }
+        edits.sort { $0.range.location < $1.range.location }
+        var out: [PreviewEdit] = []
+        for e in edits where out.last.map({ NSMaxRange($0.range) <= e.range.location }) ?? true { out.append(e) }
+        return out
     }
 }

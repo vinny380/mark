@@ -2,7 +2,7 @@ import AppKit
 
 @objc(MarkdownDocument) final class MarkdownDocument: NSDocument {
     private var text = ""
-    private var textView: EditorTextView?
+    private(set) var textView: EditorTextView?
 
     override class var autosavesInPlace: Bool { true }
 
@@ -18,7 +18,7 @@ import AppKit
     }
 
     override func data(ofType typeName: String) throws -> Data {
-        MainActor.assumeIsolated { Data((textView?.string ?? text).utf8) }
+        MainActor.assumeIsolated { Data((textView?.markdown ?? text).utf8) }
     }
 
     override func makeWindowControllers() {

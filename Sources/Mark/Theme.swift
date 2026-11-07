@@ -16,6 +16,7 @@ import MarkCore
     static let background = dynamic(light: 0xffffff, dark: 0x0a0a0a)
     static let syntax = hex(0x888888)
     static let codeBackground = dynamic(light: 0xf5f5f5, dark: 0x171717)
+    static let border = dynamic(light: 0xeaeaea, dark: 0x333333)
     static let headingSizes: [CGFloat] = [28, 22, 18, 16, 15, 15]
 
     static let body = font("Geist-Regular", 15)
@@ -30,14 +31,24 @@ import MarkCore
         [.font: body, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
     }
 
-    static func apply(_ runs: [StyleRun], to storage: NSTextStorage) {
+    static func apply(_ runs: [StyleRun], to storage: NSTextStorage, preview: Bool = false) {
         storage.beginEditing()
         storage.setAttributes(baseAttributes, range: NSRange(location: 0, length: storage.length))
-        for run in runs { apply(run.style, run.range, storage) }
+        for run in runs { apply(run.style, run.range, storage, preview) }
         storage.endEditing()
     }
 
-    private static func apply(_ style: MarkdownStyle, _ r: NSRange, _ s: NSTextStorage) {
+    /// Read-only rendering for ⌘E: styled, with Markdown symbols removed and links clickable.
+    static func preview(_ markdown: String) -> NSAttributedString {
+        let s = NSTextStorage(string: markdown)
+        apply(MarkdownStyler.runs(in: markdown), to: s, preview: true)
+        for e in MarkdownStyler.previewEdits(in: markdown).reversed() {
+            s.replaceCharacters(in: e.range, with: e.replacement) // keeps the attributes of the replaced text
+        }
+        return s
+    }
+
+    private static func apply(_ style: MarkdownStyle, _ r: NSRange, _ s: NSTextStorage, _ preview: Bool) {
         switch style {
         case .heading(let level):
             s.addAttribute(.font, value: font("Geist-SemiBold", headingSizes[level - 1], .semibold), range: r)
@@ -49,9 +60,10 @@ import MarkCore
             s.addAttributes([.font: mono, .backgroundColor: codeBackground], range: r)
         case .quote:
             s.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: r)
-        case .link:
+        case .link(let url):
             s.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
-        case .syntax:
+            if preview, let u = URL(string: url) { s.addAttribute(.link, value: u, range: r) } // editing mode: clicks place the cursor
+        case .listMarker, .syntax:
             s.addAttribute(.foregroundColor, value: syntax, range: r)
         }
     }

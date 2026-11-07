@@ -20,6 +20,13 @@ import MarkCore
         }
     }
 
+    /// ⌘K: Markdown files in the current file's folder, or anywhere on the Mac as you type.
+    @objc func quickOpen(_ sender: Any?) {
+        let docs = NSDocumentController.shared
+        let current = (docs.currentDocument ?? docs.documents.first)?.fileURL?.deletingLastPathComponent() ?? desktop
+        QuickOpen.shared.show(over: NSApp.keyWindow, folder: current) { [weak self] url in self?.open(url) }
+    }
+
     @objc func newMarkdownFile(_ sender: Any?) {
         create(in: desktop)
     }
@@ -77,14 +84,15 @@ import MarkCore
     main.addItem(submenu("File", [
         item("New", #selector(AppDelegate.newMarkdownFile(_:)), "n"),
         item("Open…", #selector(NSDocumentController.openDocument(_:)), "o"),
+        item("Quick Open…", #selector(AppDelegate.quickOpen(_:)), "k"),
         item("Save", #selector(NSDocument.save(_:)), "s"),
         .separator(),
         item("Close", #selector(NSWindow.performClose(_:)), "w"),
         item("Rename…", #selector(NSDocument.rename(_:))),
     ]))
     main.addItem(submenu("Edit", [
-        item("Undo", Selector(("undo:")), "z"),
-        item("Redo", Selector(("redo:")), "z", [.command, .shift]),
+        item("Undo", #selector(EditorTextView.undo(_:)), "z"),
+        item("Redo", #selector(EditorTextView.redo(_:)), "z", [.command, .shift]),
         .separator(),
         item("Cut", #selector(NSText.cut(_:)), "x"),
         item("Copy", #selector(NSText.copy(_:)), "c"),
@@ -93,6 +101,7 @@ import MarkCore
         .separator(),
         find,
     ]))
+    main.addItem(submenu("View", [item("Preview", #selector(EditorTextView.togglePreview(_:)), "e")]))
     let window = submenu("Window", [item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m")])
     main.addItem(window)
     NSApplication.shared.windowsMenu = window.submenu
