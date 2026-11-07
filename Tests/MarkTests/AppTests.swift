@@ -246,3 +246,22 @@ private func attachments(_ s: NSAttributedString) -> [NSTextAttachment] {
     tv.togglePreview(nil)
     #expect(tv.subviews.filter { $0 is ImageOverlay }.isEmpty) // preview draws its own
 }
+
+@MainActor @Test func quickOpenRendersOffscreenAtRetina() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try "x".write(to: dir.appendingPathComponent("Weekly notes.md"), atomically: true, encoding: .utf8)
+    let rep = QuickOpen.shared.snapshot(folder: dir, query: "wkn", appearance: NSAppearance(named: .darkAqua))
+    #expect(rep?.pixelsWide == 1280)
+    #expect(rep?.pixelsHigh == 880)
+    #expect(QuickOpen.shared.isOnScreen == false)
+}
+
+@MainActor @Test func imageOnTheLastLineSitsRightUnderIt() throws {
+    let (_, tv, dir) = try noteInTempFolder("")
+    try png(400, 200, in: dir, "pic.png")
+    tv.setMarkdown("![p](pic.png)\n") // image line is the last paragraph, then the empty last line
+    let overlay = try #require(tv.subviews.first { $0 is ImageOverlay })
+    // first line starts at the top inset (56) and is ~22pt tall; the picture belongs right below it, not after its reserved space
+    #expect(overlay.frame.minY < tv.textContainerOrigin.y + 60)
+}

@@ -54,6 +54,30 @@ import MarkCore
         panel.makeFirstResponder(field)
     }
 
+    var isOnScreen: Bool { panel.isVisible }
+
+    /// Draws the panel for `folder` with `query` typed, at 2x, without putting it on screen.
+    /// Used by the demo-video renderer and tests. Only local (fuzzy) results; Spotlight is cancelled.
+    func snapshot(folder: URL, query: String, appearance: NSAppearance? = nil) -> NSBitmapImageRep? {
+        go(to: folder)
+        field.stringValue = query
+        search()
+        self.query?.stop() // offscreen: local results only, so say what's shown instead of "Searching your Mac…"
+        if !q.isEmpty { status.stringValue = count(rows.filter { $0.url != nil }.count, "result") }
+        defer { close() }
+        guard let view = panel.contentView else { return nil }
+        view.appearance = appearance
+        view.layoutSubtreeIfNeeded()
+        table.layoutSubtreeIfNeeded()
+        let size = view.bounds.size
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        rep.size = size
+        view.cacheDisplay(in: view.bounds, to: rep)
+        return rep
+    }
+
     // MARK: Navigation
 
     private var q: String { field.stringValue.trimmingCharacters(in: .whitespaces) }

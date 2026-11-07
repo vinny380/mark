@@ -3,8 +3,11 @@ import MarkCore
 import UniformTypeIdentifiers
 
 /// A picture floating in the editor. Clicks pass through to the text.
-final class ImageOverlay: NSImageView {
+/// Draws itself (not NSImageView) so offscreen snapshots — the demo renderer — capture it too.
+final class ImageOverlay: NSView {
+    var image: NSImage? { didSet { needsDisplay = true } }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) { image?.draw(in: bounds) }
 }
 
 final class EditorTextView: NSTextView {
@@ -63,13 +66,14 @@ final class EditorTextView: NSTextView {
             guard let image = loadedImage(run.src),
                   let loc = content.location(content.documentRange.location, offsetBy: run.range.location) else { continue }
             tlm.ensureLayout(for: NSTextRange(location: loc))
-            guard let fragment = tlm.textLayoutFragment(for: loc), let line = fragment.textLineFragments.last else { continue }
+            // last line with text: a paragraph that ends the document also carries an empty "extra" line after its spacing
+            guard let fragment = tlm.textLayoutFragment(for: loc),
+                  let line = fragment.textLineFragments.last(where: { $0.characterRange.length > 0 }) else { continue }
             let size = Theme.fit(image.size, column)
             let y = textContainerOrigin.y + fragment.layoutFragmentFrame.minY + line.typographicBounds.maxY + Theme.imageGap
             let x = textContainerOrigin.x + (textContainer?.lineFragmentPadding ?? 0)
             let view = ImageOverlay(frame: NSRect(x: x, y: y, width: size.width, height: size.height))
             view.image = Theme.rounded(image, size)
-            view.imageScaling = .scaleAxesIndependently
             addSubview(view)
         }
     }
