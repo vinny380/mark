@@ -84,7 +84,7 @@ import MarkCore
     main.addItem(submenu("File", [
         item("New", #selector(AppDelegate.newMarkdownFile(_:)), "n"),
         item("Open…", #selector(NSDocumentController.openDocument(_:)), "o"),
-        item("Quick Open…", #selector(AppDelegate.quickOpen(_:)), "k"),
+        item("Go to File…", #selector(AppDelegate.quickOpen(_:)), "p"),
         item("Save", #selector(NSDocument.save(_:)), "s"),
         .separator(),
         item("Close", #selector(NSWindow.performClose(_:)), "w"),
@@ -100,6 +100,22 @@ import MarkCore
         item("Select All", #selector(NSText.selectAll(_:)), "a"),
         .separator(),
         find,
+    ]))
+    func heading(_ title: String, _ level: Int) -> NSMenuItem {
+        let i = item(title, #selector(EditorTextView.setHeadingLevel(_:)), "\(level)", [.command, .option])
+        i.tag = level
+        return i
+    }
+    main.addItem(submenu("Format", [
+        item("Bold", #selector(EditorTextView.toggleBold(_:)), "b"),
+        item("Italic", #selector(EditorTextView.toggleItalic(_:)), "i"),
+        item("Strikethrough", #selector(EditorTextView.toggleStrikethrough(_:)), "x", [.command, .shift]),
+        item("Inline Code", #selector(EditorTextView.toggleInlineCode(_:)), "e", [.command, .shift]),
+        item("Link", #selector(EditorTextView.insertLink(_:)), "k"),
+        .separator(),
+        heading("Heading 1", 1), heading("Heading 2", 2), heading("Heading 3", 3), heading("Plain Text", 0),
+        .separator(),
+        item("To-do", #selector(EditorTextView.toggleTodoItem(_:)), "\r"),
     ]))
     main.addItem(submenu("View", [item("Preview", #selector(EditorTextView.togglePreview(_:)), "e")]))
     let window = submenu("Window", [item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m")])

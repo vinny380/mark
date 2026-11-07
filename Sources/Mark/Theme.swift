@@ -63,7 +63,12 @@ import MarkCore
         case .link(let url):
             s.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
             if preview, let u = URL(string: url) { s.addAttribute(.link, value: u, range: r) } // editing mode: clicks place the cursor
-        case .listMarker, .syntax:
+        case .strike:
+            s.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: r)
+        case .done:
+            s.addAttributes([.foregroundColor: NSColor.tertiaryLabelColor,
+                             .strikethroughStyle: NSUnderlineStyle.single.rawValue], range: r)
+        case .listMarker, .checkbox, .syntax:
             s.addAttribute(.foregroundColor, value: syntax, range: r)
         }
     }

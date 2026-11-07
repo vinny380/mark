@@ -1,7 +1,7 @@
 import Foundation
 
 public enum MarkdownStyle: Equatable, Sendable {
-    case heading(Int), bold, italic, code, codeBlock, quote, link(String), listMarker, syntax
+    case heading(Int), bold, italic, strike, code, codeBlock, quote, link(String), listMarker, checkbox(Bool), done, syntax
 }
 
 /// Preview (⌘E): replace `range` of the source with `replacement` ("" = hide).
@@ -26,6 +26,8 @@ public enum MarkdownStyler {
     private static let list = rx(#"^\s*([-*+]|\d+\.)\s"#)
     private static let code = rx(#"`[^`]+`"#)
     private static let bold = rx(#"(\*\*|__)(?=\S)(.+?)(?<=\S)\1"#)
+    private static let strike = rx(#"~~(?=\S)(.+?)(?<=\S)~~"#)
+    private static let checkbox = rx(#"^\s*[-*+] (\[([ xX])\])"#)
     private static let italic = rx(#"(?<![*_\w])([*_])(?![\s*_])(.+?)(?<![\s*_])\1(?![*_\w])"#)
     private static let link = rx(#"\[([^\]]+)\]\(([^)]*)\)"#)
 
@@ -68,6 +70,12 @@ public enum MarkdownStyler {
             } else if let m = list.firstMatch(in: line, range: whole) {
                 let marker = m.range(at: 1)
                 add(base + marker.location, marker.length, .listMarker)
+                if let c = checkbox.firstMatch(in: line, range: whole) {
+                    let box = c.range(at: 1), done = (line as NSString).substring(with: c.range(at: 2)) != " "
+                    add(base + box.location, box.length, .checkbox(done))
+                    let rest = NSMaxRange(box) + 1
+                    if done, rest < len { add(base + rest, len - rest, .done) }
+                }
             }
 
             let codeSpans = code.matches(in: line, range: whole).map(\.range)
@@ -78,7 +86,7 @@ public enum MarkdownStyler {
             }
             func outsideCode(_ r: NSRange) -> Bool { !codeSpans.contains { NSIntersectionRange($0, r).length > 0 } }
 
-            for (regex, style, delim) in [(bold, MarkdownStyle.bold, 2), (italic, .italic, 1)] {
+            for (regex, style, delim) in [(bold, MarkdownStyle.bold, 2), (italic, .italic, 1), (strike, .strike, 2)] {
                 for m in regex.matches(in: line, range: whole) where outsideCode(m.range) {
                     add(base + m.range.location, m.range.length, style)
                     add(base + m.range.location, delim, .syntax)
@@ -101,7 +109,10 @@ public enum MarkdownStyler {
     public static func previewEdits(in text: String) -> [PreviewEdit] {
         let ns = text as NSString
         var edits: [PreviewEdit] = []
-        for run in runs(in: text) {
+        let all = runs(in: text)
+        var boxes: [Int: StyleRun] = [:] // checkbox runs by location, so "- [ ]" becomes one symbol
+        for run in all { if case .checkbox = run.style { boxes[run.range.location] = run } }
+        for run in all {
             let s = ns.substring(with: run.range)
             switch run.style {
             case .syntax:
@@ -109,7 +120,12 @@ public enum MarkdownStyler {
                 if s.hasPrefix("```"), NSMaxRange(r) < ns.length, ns.character(at: NSMaxRange(r)) == 10 { r.length += 1 }
                 edits.append(PreviewEdit(range: r, replacement: ""))
             case .listMarker where !(s.first?.isNumber ?? false):
-                edits.append(PreviewEdit(range: run.range, replacement: "•"))
+                if let box = boxes[NSMaxRange(run.range) + 1], case .checkbox(let done) = box.style {
+                    let r = NSRange(location: run.range.location, length: NSMaxRange(box.range) - run.range.location)
+                    edits.append(PreviewEdit(range: r, replacement: done ? "☑" : "☐"))
+                } else {
+                    edits.append(PreviewEdit(range: run.range, replacement: "•"))
+                }
             default:
                 break
             }

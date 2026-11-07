@@ -79,15 +79,69 @@ final class EditorTextView: NSTextView {
     @objc func undo(_ sender: Any?) { if !isPreview { undoManager?.undo() } }
     @objc func redo(_ sender: Any?) { if !isPreview { undoManager?.redo() } }
 
-    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
-        switch item.action {
+    private static let formatting: Set<Selector> = [
+        #selector(toggleBold(_:)), #selector(toggleItalic(_:)), #selector(toggleStrikethrough(_:)),
+        #selector(toggleInlineCode(_:)), #selector(insertLink(_:)), #selector(setHeadingLevel(_:)), #selector(toggleTodoItem(_:)),
+    ]
+
+    /// nil = not ours, let AppKit decide.
+    private func validate(_ action: Selector?, _ item: Any) -> Bool? {
+        switch action {
         case #selector(togglePreview(_:)):
             (item as? NSMenuItem)?.state = isPreview ? .on : .off
             return true
         case #selector(undo(_:)): return !isPreview && undoManager?.canUndo == true
         case #selector(redo(_:)): return !isPreview && undoManager?.canRedo == true
-        default: return super.validateUserInterfaceItem(item)
+        case let a? where Self.formatting.contains(a): return !isPreview
+        default: return nil
         }
+    }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        validate(item.action, item) ?? super.validateUserInterfaceItem(item)
+    }
+
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        validate(item.action, item) ?? super.validateMenuItem(item)
+    }
+
+    // MARK: Formatting shortcuts (pure edits live in MarkCore/Editing.swift)
+
+    @objc func toggleBold(_ sender: Any?) { edit { toggleWrap($0, $1, "**") } }
+    @objc func toggleItalic(_ sender: Any?) { edit { toggleWrap($0, $1, "*") } }
+    @objc func toggleStrikethrough(_ sender: Any?) { edit { toggleWrap($0, $1, "~~") } }
+    @objc func toggleInlineCode(_ sender: Any?) { edit { toggleWrap($0, $1, "`") } }
+    @objc func insertLink(_ sender: Any?) { edit(makeLink) }
+    @objc func toggleTodoItem(_ sender: Any?) { edit(toggleTodo) }
+    /// Menu item tag = heading level (0 = plain text).
+    @objc func setHeadingLevel(_ sender: Any?) {
+        let level = (sender as? NSMenuItem)?.tag ?? 0
+        edit { setHeading($0, $1, level: level) }
+    }
+
+    override func insertNewline(_ sender: Any?) {
+        if !edit(continueList) { super.insertNewline(sender) }
+    }
+    override func insertTab(_ sender: Any?) {
+        if !edit({ indentList($0, $1, outdent: false) }) { super.insertTab(sender) }
+    }
+    override func insertBacktab(_ sender: Any?) {
+        if !edit({ indentList($0, $1, outdent: true) }) { super.insertBacktab(sender) }
+    }
+    override func paste(_ sender: Any?) {
+        let pasted = NSPasteboard.general.string(forType: .string) ?? ""
+        if !edit({ linkPaste($0, $1, pasted) }) { super.paste(sender) }
+    }
+
+    /// Applies an edit as one undoable change. Returns false when there's nothing to do (caller falls back).
+    @discardableResult
+    private func edit(_ make: (String, NSRange) -> TextEdit?) -> Bool {
+        guard isEditable, !hasMarkedText(), let e = make(string, selectedRange()),
+              shouldChangeText(in: e.range, replacementString: e.replacement) else { return false }
+        textStorage?.replaceCharacters(in: e.range, with: e.replacement)
+        didChangeText()
+        setSelectedRange(e.selection)
+        return true
     }
 
     /// Centers a max-720pt text column.

@@ -110,3 +110,21 @@ private func edits(_ t: String) -> [PreviewEdit] { MarkdownStyler.previewEdits(i
     let e = edits("# **a** `c` [l](u)\n- x\n```\ny\n```")
     for (a, b) in zip(e, e.dropFirst()) { #expect(NSMaxRange(a.range) <= b.range.location) }
 }
+
+@Test func strikethrough() {
+    #expect(has("~~a~~", run(0, 5, .strike)))
+    #expect(has("~~a~~", run(0, 2, .syntax)))
+    #expect(has("~~a~~", run(3, 2, .syntax)))
+}
+
+@Test func todoCheckboxes() {
+    #expect(has("- [ ] a", run(2, 3, .checkbox(false))))
+    #expect(has("- [x] a", run(2, 3, .checkbox(true))))
+    #expect(has("- [x] done", run(6, 4, .done)))
+    #expect(!styles("- [ ] a").contains(.done))
+}
+
+@Test func previewShowsCheckboxes() {
+    #expect(edits("- [ ] a") == [edit(0, 5, "☐")])
+    #expect(edits("  - [x] a") == [edit(2, 5, "☑")])
+}
