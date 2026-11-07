@@ -1,7 +1,7 @@
 import AppKit
 import MarkCore
 
-/// ⌘K palette. Empty query: Markdown files in the current folder. Typing: Spotlight search of the home folder.
+/// ⌘K palette. Empty query: Markdown files in the current folder. Typing: Spotlight search of the whole Mac.
 @MainActor final class QuickOpen: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSWindowDelegate {
     static let shared = QuickOpen()
 
@@ -53,7 +53,7 @@ import MarkCore
         let mq = NSMetadataQuery()
         mq.predicate = NSPredicate(format: "(%K LIKE[cd] %@) OR (%K LIKE[cd] %@)",
                                    NSMetadataItemFSNameKey, "*\(q)*.md", NSMetadataItemFSNameKey, "*\(q)*.markdown")
-        mq.searchScopes = [NSMetadataQueryUserHomeScope]
+        mq.searchScopes = [NSMetadataQueryLocalComputerScope] // every local volume, incl. external drives
         mq.sortDescriptors = [NSSortDescriptor(key: NSMetadataItemFSContentChangeDateKey, ascending: false)]
         NotificationCenter.default.addObserver(self, selector: #selector(gathered(_:)), name: .NSMetadataQueryDidFinishGathering, object: mq)
         NotificationCenter.default.addObserver(self, selector: #selector(gathered(_:)), name: .NSMetadataQueryDidUpdate, object: mq)
@@ -64,8 +64,8 @@ import MarkCore
     @objc private func gathered(_ note: Notification) {
         guard let mq = note.object as? NSMetadataQuery, mq === query else { return }
         mq.disableUpdates()
-        // ponytail: scan the 500 newest hits, keep 50 after dropping node_modules/caches; widen if real notes get crowded out.
-        let found = (0..<min(mq.resultCount, 500))
+        // ponytail: scan the 2000 newest hits, keep 50 after dropping node_modules/caches; widen if real notes get crowded out.
+        let found = (0..<min(mq.resultCount, 2000))
             .compactMap { (mq.result(at: $0) as? NSMetadataItem)?.value(forAttribute: NSMetadataItemPathKey) as? String }
             .filter { !isNoisePath($0) }
             .prefix(50)

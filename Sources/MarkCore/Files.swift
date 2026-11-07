@@ -12,10 +12,18 @@ public func markdownFiles(in dir: URL) -> [URL] {
         .sorted { modified($0) > modified($1) }
 }
 
-/// Paths a person never means when searching their notes: dependencies, caches, build output, hidden folders.
+private let systemRoots: Set<Substring> = ["System", "usr", "opt", "private", "bin", "sbin", "Library", "cores"]
+private let bundleSuffixes = [".app", ".framework", ".bundle", ".xcarchive"]
+
+/// Paths a person never means when searching their notes: OS/system folders, app bundles,
+/// dependencies, caches, build output, hidden folders.
 public func isNoisePath(_ path: String) -> Bool {
-    let parts = path.split(separator: "/")
-    return parts.dropLast().contains { $0.hasPrefix(".") || $0 == "node_modules" || $0 == "Library" || $0 == "DerivedData" || $0 == "Pods" }
+    let dirs = path.split(separator: "/").dropLast()
+    if let root = dirs.first, systemRoots.contains(root) { return true }
+    return dirs.contains { d in
+        d.hasPrefix(".") || d == "node_modules" || d == "Library" || d == "DerivedData" || d == "Pods"
+            || bundleSuffixes.contains { d.hasSuffix($0) }
+    }
 }
 
 /// Folder of `url` for display, with the home directory shortened to `~`.
