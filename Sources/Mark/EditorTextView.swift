@@ -4,6 +4,8 @@ import MarkCore
 final class EditorTextView: NSTextView {
     private(set) var isPreview = false
     private var source = "" // the real Markdown while previewing
+    /// The document's folder, for relative image paths in Preview (asked fresh: the file may have been renamed or moved).
+    private var baseURL: URL? { (window?.windowController?.document as? NSDocument)?.fileURL?.deletingLastPathComponent() }
 
     /// The document's Markdown, whatever mode the view is in. Save from this, never from `string`.
     var markdown: String { isPreview ? source : string }
@@ -21,6 +23,19 @@ final class EditorTextView: NSTextView {
         insertionPointColor = .labelColor
         typingAttributes = Theme.baseAttributes
         linkTextAttributes = [.underlineStyle: NSUnderlineStyle.single.rawValue, .cursor: NSCursor.pointingHand]
+        NotificationCenter.default.addObserver(self, selector: #selector(imageLoaded), name: Images.didLoad, object: nil)
+    }
+
+    private func renderPreview() {
+        let column = min(720, (textContainer?.size.width ?? 720) - 2 * (textContainer?.lineFragmentPadding ?? 0))
+        textStorage?.setAttributedString(Theme.preview(source, base: baseURL, maxWidth: max(column, 100)))
+    }
+
+    @objc private func imageLoaded() {
+        guard isPreview else { return }
+        let anchor = scrollFraction
+        renderPreview()
+        scrollFraction = anchor
     }
 
     override convenience init(frame: NSRect) {
@@ -36,7 +51,7 @@ final class EditorTextView: NSTextView {
     func setMarkdown(_ s: String) {
         if isPreview {
             source = s
-            textStorage?.setAttributedString(Theme.preview(s))
+            renderPreview()
         } else {
             string = s
             restyle()
@@ -53,7 +68,7 @@ final class EditorTextView: NSTextView {
         } else {
             source = string
             isPreview = true
-            textStorage?.setAttributedString(Theme.preview(source))
+            renderPreview()
             setSelectedRange(NSRange(location: 0, length: 0))
         }
         isEditable = !isPreview

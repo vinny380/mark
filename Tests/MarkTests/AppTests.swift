@@ -132,3 +132,36 @@ import Testing
     tv.toggleBold(nil)
     #expect(tv.markdown == "a b")
 }
+
+private func png(_ w: CGFloat, _ h: CGFloat, in dir: URL, _ name: String) throws {
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(w), pixelsHigh: Int(h), bitsPerSample: 8,
+                               samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    try rep.representation(using: .png, properties: [:])!.write(to: dir.appendingPathComponent(name))
+}
+
+private func attachments(_ s: NSAttributedString) -> [NSTextAttachment] {
+    var out: [NSTextAttachment] = []
+    s.enumerateAttribute(.attachment, in: NSRange(location: 0, length: s.length)) { v, _, _ in
+        if let a = v as? NSTextAttachment { out.append(a) }
+    }
+    return out
+}
+
+@MainActor @Test func previewShowsLocalImagesAndAltTextForUnloadedOnes() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try png(40, 20, in: dir, "pic.png")
+    let s = Theme.preview("a ![pic](pic.png) b ![web shot](https://example.invalid/x.png)", base: dir, maxWidth: 600)
+    let a = attachments(s)
+    #expect(a.count == 1)
+    #expect(a.first?.bounds.size == CGSize(width: 40, height: 20))
+    #expect(s.string.hasSuffix("b web shot")) // remote image still loading → alt text
+}
+
+@MainActor @Test func wideImagesScaleDownToTheColumn() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try png(2000, 1000, in: dir, "wide.png")
+    let a = attachments(Theme.preview("![](wide.png)", base: dir, maxWidth: 600))
+    #expect(a.first?.bounds.size == CGSize(width: 600, height: 300))
+}

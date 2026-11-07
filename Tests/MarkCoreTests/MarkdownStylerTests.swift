@@ -128,3 +128,19 @@ private func edits(_ t: String) -> [PreviewEdit] { MarkdownStyler.previewEdits(i
     #expect(edits("- [ ] a") == [edit(0, 5, "☐")])
     #expect(edits("  - [x] a") == [edit(2, 5, "☑")])
 }
+
+@Test func imagesAreNotLinks() {
+    let t = "![cat](https://x/c.png)"
+    #expect(has(t, run(2, 3, .image("https://x/c.png"))))
+    #expect(!styles(t).contains { if case .link = $0 { true } else { false } })
+    #expect(has(t, run(0, 2, .syntax)))
+    #expect(has(t, run(5, 18, .syntax)))
+}
+
+@Test func imageTitleIsIgnoredInURL() {
+    #expect(has(#"![a](p.png "Title")"#, run(2, 1, .image("p.png"))))
+}
+
+@Test func previewReplacesImageWithOnePlaceholder() {
+    #expect(edits("x ![cat](https://x/c.png) y") == [edit(2, 23, "\u{FFFC}")])
+}

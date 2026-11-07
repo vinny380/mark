@@ -1,7 +1,7 @@
 import Foundation
 
 public enum MarkdownStyle: Equatable, Sendable {
-    case heading(Int), bold, italic, strike, code, codeBlock, quote, link(String), listMarker, checkbox(Bool), done, syntax
+    case heading(Int), bold, italic, strike, code, codeBlock, quote, link(String), image(String), listMarker, checkbox(Bool), done, syntax
 }
 
 /// Preview (⌘E): replace `range` of the source with `replacement` ("" = hide).
@@ -29,7 +29,8 @@ public enum MarkdownStyler {
     private static let strike = rx(#"~~(?=\S)(.+?)(?<=\S)~~"#)
     private static let checkbox = rx(#"^\s*[-*+] (\[([ xX])\])"#)
     private static let italic = rx(#"(?<![*_\w])([*_])(?![\s*_])(.+?)(?<![\s*_])\1(?![*_\w])"#)
-    private static let link = rx(#"\[([^\]]+)\]\(([^)]*)\)"#)
+    private static let link = rx(#"(?<!!)\[([^\]]+)\]\(([^)]*)\)"#)
+    private static let image = rx(#"!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)"#)
 
     public static func runs(in text: String) -> [StyleRun] {
         let ns = text as NSString
@@ -93,6 +94,12 @@ public enum MarkdownStyler {
                     add(base + NSMaxRange(m.range) - delim, delim, .syntax)
                 }
             }
+            for m in image.matches(in: line, range: whole) where outsideCode(m.range) {
+                let alt = m.range(at: 1)
+                add(base + m.range.location, 2, .syntax)
+                add(base + alt.location, alt.length, .image((line as NSString).substring(with: m.range(at: 2))))
+                add(base + NSMaxRange(alt), NSMaxRange(m.range) - NSMaxRange(alt), .syntax)
+            }
             for m in link.matches(in: line, range: whole) where outsideCode(m.range) {
                 let label = m.range(at: 1)
                 add(base + m.range.location, 1, .syntax)
@@ -111,7 +118,11 @@ public enum MarkdownStyler {
         var edits: [PreviewEdit] = []
         let all = runs(in: text)
         var boxes: [Int: StyleRun] = [:] // checkbox runs by location, so "- [ ]" becomes one symbol
-        for run in all { if case .checkbox = run.style { boxes[run.range.location] = run } }
+        var syntaxAt: [Int: NSRange] = [:]
+        for run in all {
+            if case .checkbox = run.style { boxes[run.range.location] = run }
+            if run.style == .syntax { syntaxAt[run.range.location] = run.range }
+        }
         for run in all {
             let s = ns.substring(with: run.range)
             switch run.style {
@@ -119,6 +130,10 @@ public enum MarkdownStyler {
                 var r = run.range
                 if s.hasPrefix("```"), NSMaxRange(r) < ns.length, ns.character(at: NSMaxRange(r)) == 10 { r.length += 1 }
                 edits.append(PreviewEdit(range: r, replacement: ""))
+            case .image:
+                // whole "![alt](url)" → one object-replacement char; the app swaps in the picture
+                let start = run.range.location - 2, end = syntaxAt[NSMaxRange(run.range)].map(NSMaxRange) ?? NSMaxRange(run.range)
+                edits.append(PreviewEdit(range: NSRange(location: start, length: end - start), replacement: "\u{FFFC}"))
             case .listMarker where !(s.first?.isNumber ?? false):
                 if let box = boxes[NSMaxRange(run.range) + 1], case .checkbox(let done) = box.style {
                     let r = NSRange(location: run.range.location, length: NSMaxRange(box.range) - run.range.location)
@@ -130,7 +145,7 @@ public enum MarkdownStyler {
                 break
             }
         }
-        edits.sort { $0.range.location < $1.range.location }
+        edits.sort { ($0.range.location, -$0.range.length) < ($1.range.location, -$1.range.length) } // widest wins a tie
         var out: [PreviewEdit] = []
         for e in edits where out.last.map({ NSMaxRange($0.range) <= e.range.location }) ?? true { out.append(e) }
         return out

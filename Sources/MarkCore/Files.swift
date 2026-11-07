@@ -85,3 +85,15 @@ public func fuzzyMatch(_ query: String, _ candidate: String) -> FuzzyMatch? {
     }
     return best
 }
+
+/// Where a Markdown image points: http(s), file:, absolute path, or a path relative to the document's folder.
+/// nil for anything else (javascript:, data:, relative paths in an unsaved document).
+public func imageURL(_ src: String, base: URL?) -> URL? {
+    let lower = src.lowercased()
+    if lower.hasPrefix("http://") || lower.hasPrefix("https://") { return URL(string: src) }
+    if lower.hasPrefix("file://") { return URL(string: src).flatMap { $0.isFileURL ? $0 : nil } }
+    if lower.range(of: #"^[a-z][a-z0-9+.-]*:"#, options: .regularExpression) != nil { return nil } // other schemes
+    let path = src.removingPercentEncoding ?? src
+    if path.hasPrefix("/") { return URL(fileURLWithPath: path) }
+    return base.map { $0.appendingPathComponent(path).standardizedFileURL } // works with or without a trailing slash
+}

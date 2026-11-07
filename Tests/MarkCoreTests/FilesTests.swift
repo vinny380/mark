@@ -38,3 +38,16 @@ import Testing
     #expect(displayPath(URL(fileURLWithPath: "/Volumes/X/a.md"), home: home) == "/Volumes/X")
     #expect(displayPath(URL(fileURLWithPath: "/Users/vinny/a.md"), home: home) == "/Users/vinny")
 }
+
+@Test func resolvesImageSources() {
+    let base = URL(fileURLWithPath: "/Users/v/notes", isDirectory: true)
+    #expect(imageURL("https://x.com/a.png", base: base)?.absoluteString == "https://x.com/a.png")
+    #expect(imageURL("img/a b.png", base: base)?.path == "/Users/v/notes/img/a b.png")
+    #expect(imageURL("img/a%20b.png", base: base)?.path == "/Users/v/notes/img/a b.png")
+    #expect(imageURL("/tmp/a.png", base: base)?.path == "/tmp/a.png")
+    #expect(imageURL("file:///tmp/a.png", base: nil)?.path == "/tmp/a.png")
+    #expect(imageURL("img/a.png", base: nil) == nil)
+    #expect(imageURL("a.png", base: URL(fileURLWithPath: "/Users/v/notes"))?.path == "/Users/v/notes/a.png") // no trailing slash
+    #expect(imageURL("../a.png", base: base)?.path == "/Users/v/a.png")
+    #expect(imageURL("javascript:alert(1)", base: base) == nil)
+}

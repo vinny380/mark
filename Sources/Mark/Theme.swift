@@ -38,14 +38,53 @@ import MarkCore
         storage.endEditing()
     }
 
-    /// Read-only rendering for ⌘E: styled, with Markdown symbols removed and links clickable.
-    static func preview(_ markdown: String) -> NSAttributedString {
+    /// Read-only rendering for ⌘E: styled, with Markdown symbols removed, links clickable, images shown.
+    /// `base` resolves relative image paths; `maxWidth` is the text column (wider images scale down).
+    static func preview(_ markdown: String, base: URL? = nil, maxWidth: CGFloat = 720) -> NSAttributedString {
         let s = NSTextStorage(string: markdown)
-        apply(MarkdownStyler.runs(in: markdown), to: s, preview: true)
+        let runs = MarkdownStyler.runs(in: markdown)
+        apply(runs, to: s, preview: true)
         for e in MarkdownStyler.previewEdits(in: markdown).reversed() {
             s.replaceCharacters(in: e.range, with: e.replacement) // keeps the attributes of the replaced text
         }
+        let images: [(alt: String, src: String)] = runs.compactMap {
+            guard case .image(let src) = $0.style else { return nil }
+            return ((markdown as NSString).substring(with: $0.range), src)
+        }
+        let ns = s.string as NSString
+        var slots: [Int] = []
+        for i in 0..<ns.length where ns.character(at: i) == 0xFFFC { slots.append(i) }
+        // ponytail: a literal U+FFFC typed in the source would desync slots from images; then images are skipped.
+        guard slots.count == images.count else { return s }
+        for (at, img) in zip(slots, images).reversed() {
+            let here = NSRange(location: at, length: 1)
+            if let url = imageURL(img.src, base: base), let image = Images.image(url) {
+                let a = NSTextAttachment()
+                let size = fit(image.size, maxWidth)
+                a.image = rounded(image, size)
+                a.bounds = CGRect(origin: .zero, size: size)
+                s.replaceCharacters(in: here, with: NSAttributedString(attachment: a))
+                let p = NSMutableParagraphStyle()
+                p.paragraphSpacing = 8 // the 1.5 line height would add half an image of air
+                s.addAttribute(.paragraphStyle, value: p, range: ns.paragraphRange(for: here))
+            } else {
+                s.replaceCharacters(in: here, with: img.alt.isEmpty ? "Image" : img.alt) // loading, missing or unsupported
+            }
+        }
         return s
+    }
+
+    private static func fit(_ size: CGSize, _ maxWidth: CGFloat) -> CGSize {
+        guard size.width > maxWidth, size.width > 0 else { return size }
+        return CGSize(width: maxWidth, height: (size.height * maxWidth / size.width).rounded())
+    }
+
+    private static func rounded(_ image: NSImage, _ size: CGSize) -> NSImage {
+        NSImage(size: size, flipped: false) { r in
+            NSBezierPath(roundedRect: r, xRadius: 8, yRadius: 8).addClip()
+            image.draw(in: r)
+            return true
+        }
     }
 
     private static func apply(_ style: MarkdownStyle, _ r: NSRange, _ s: NSTextStorage, _ preview: Bool) {
@@ -59,6 +98,8 @@ import MarkCore
         case .code, .codeBlock:
             s.addAttributes([.font: mono, .backgroundColor: codeBackground], range: r)
         case .quote:
+            s.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: r)
+        case .image:
             s.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: r)
         case .link(let url):
             s.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
