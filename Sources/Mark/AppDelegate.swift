@@ -23,8 +23,23 @@ import MarkCore
     /// ⌘K: Markdown files in the current file's folder, or anywhere on the Mac as you type.
     @objc func quickOpen(_ sender: Any?) {
         let docs = NSDocumentController.shared
-        let current = (docs.currentDocument ?? docs.documents.first)?.fileURL?.deletingLastPathComponent() ?? desktop
-        QuickOpen.shared.show(over: NSApp.keyWindow, folder: current) { [weak self] url in self?.open(url) }
+        let doc = docs.currentDocument ?? docs.documents.first
+        let tv = (doc as? MarkdownDocument)?.textView
+        let current = doc?.fileURL?.deletingLastPathComponent() ?? desktop
+        let commands: [QuickOpen.Command] = [
+            .init(title: "Toggle Preview", shortcut: "⌘E") { tv?.togglePreview(nil) },
+            .init(title: "New Markdown File", shortcut: "⌘N") { [weak self] in self?.newMarkdownFile(nil) },
+            .init(title: "Reveal in Finder", shortcut: "") { if let u = doc?.fileURL { NSWorkspace.shared.activateFileViewerSelecting([u]) } },
+            .init(title: "Copy File Path", shortcut: "") {
+                guard let u = doc?.fileURL else { return }
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(u.path, forType: .string)
+            },
+            .init(title: "Bigger Text", shortcut: "⌘+") { [weak self] in self?.makeTextBigger(nil) },
+            .init(title: "Smaller Text", shortcut: "⌘−") { [weak self] in self?.makeTextSmaller(nil) },
+        ]
+        QuickOpen.shared.show(over: NSApp.keyWindow, folder: current, headings: tv.map { outline($0.markdown) } ?? [],
+                              commands: commands, onOpen: { [weak self] url in self?.open(url) }, onJump: { tv?.jump(to: $0) })
     }
 
     @objc func makeTextBigger(_ sender: Any?) { Theme.scale = min(2, (Theme.scale * 10 + 1).rounded() / 10) }

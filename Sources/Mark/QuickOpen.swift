@@ -5,6 +5,7 @@ import MarkCore
 /// Opens in the current file's folder (files newest first, then subfolders). Typing fuzzy-filters that folder
 /// and searches the whole Mac via Spotlight. ↵ open / enter folder, ⇥ or → enter folder, ⌫ or ← on an empty
 /// query (or ⌘↑) goes up, ⌘↓ opens, "~/" jumps home, esc clears then closes.
+/// "#" lists the current note's headings (↵ jumps), ">" lists commands (↵ runs).
 @MainActor final class QuickOpen: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSWindowDelegate {
     static let shared = QuickOpen()
 
@@ -12,13 +13,29 @@ import MarkCore
         case header(String)
         case file(URL, FuzzyMatch?, everywhere: Bool)
         case folder(URL, FuzzyMatch?)
+        case heading(Heading, FuzzyMatch?)
+        case command(Int, FuzzyMatch?)
 
         var url: URL? {
             switch self {
-            case .header: nil
             case .file(let u, _, _), .folder(let u, _): u
+            default: nil
             }
         }
+        var isHeader: Bool { if case .header = self { true } else { false } }
+    }
+
+    struct Command {
+        let title: String
+        let shortcut: String
+        let run: () -> Void
+    }
+
+    private enum Mode { case files, headings(String), commands(String) }
+    private var mode: Mode {
+        if q.hasPrefix("#") { return .headings(String(q.dropFirst()).trimmingCharacters(in: .whitespaces)) }
+        if q.hasPrefix(">") { return .commands(String(q.dropFirst()).trimmingCharacters(in: .whitespaces)) }
+        return .files
     }
 
     private let panel = KeyPanel(contentRect: NSRect(x: 0, y: 0, width: 640, height: 440),
@@ -33,6 +50,8 @@ import MarkCore
     private var rows: [Row] = []
     private var query: NSMetadataQuery?
     private var onOpen: ((URL) -> Void)?
+    private var headings: [Heading] = [], commands: [Command] = []
+    private var onJump: ((Heading) -> Void)?
     private static let ago: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .short
@@ -44,8 +63,12 @@ import MarkCore
         build()
     }
 
-    func show(over window: NSWindow?, folder: URL, onOpen: @escaping (URL) -> Void) {
+    func show(over window: NSWindow?, folder: URL, headings: [Heading] = [], commands: [Command] = [],
+              onOpen: @escaping (URL) -> Void, onJump: @escaping (Heading) -> Void = { _ in }) {
         self.onOpen = onOpen
+        self.onJump = onJump
+        self.headings = headings
+        self.commands = commands
         go(to: folder)
         let size = panel.frame.size
         let anchor = window?.frame ?? NSScreen.main?.visibleFrame ?? .zero
@@ -58,12 +81,15 @@ import MarkCore
 
     /// Draws the panel for `folder` with `query` typed, at 2x, without putting it on screen.
     /// Used by the demo-video renderer and tests. Only local (fuzzy) results; Spotlight is cancelled.
-    func snapshot(folder: URL, query: String, appearance: NSAppearance? = nil) -> NSBitmapImageRep? {
+    func snapshot(folder: URL, query: String, appearance: NSAppearance? = nil,
+                  headings: [Heading] = [], commands: [Command] = []) -> NSBitmapImageRep? {
+        self.headings = headings
+        self.commands = commands
         go(to: folder)
         field.stringValue = query
         search()
         self.query?.stop() // offscreen: local results only, so say what's shown instead of "Searching your Mac…"
-        if !q.isEmpty { status.stringValue = count(rows.filter { $0.url != nil }.count, "result") }
+        if case .files = mode, !q.isEmpty { status.stringValue = count(rows.filter { !$0.isHeader }.count, "result") }
         defer { close() }
         guard let view = panel.contentView else { return nil }
         view.appearance = appearance
@@ -108,6 +134,13 @@ import MarkCore
             onOpen?(url)
         case .folder(let url, _)?:
             go(to: url)
+        case .heading(let h, _)?:
+            close()
+            onJump?(h)
+        case .command(let i, _)?:
+            close()
+            let run = commands[i].run
+            DispatchQueue.main.async { run() } // after the note's window is key again
         default:
             NSSound.beep()
         }
@@ -134,7 +167,7 @@ import MarkCore
         query = nil
         spotlight = []
         render()
-        guard !q.isEmpty else { return }
+        guard case .files = mode, !q.isEmpty else { return } // headings/commands are local, no Spotlight
 
         let mq = NSMetadataQuery()
         mq.predicate = NSPredicate(format: "(%K LIKE[cd] %@) OR (%K LIKE[cd] %@)",
@@ -159,14 +192,25 @@ import MarkCore
             .map { URL(fileURLWithPath: $0) }
         mq.enableUpdates()
         render()
-        status.stringValue = count(rows.filter { $0.url != nil }.count, "result")
+        status.stringValue = count(rows.filter { !$0.isHeader }.count, "result")
     }
 
     /// Rebuild rows from folder contents + Spotlight hits, keeping the selection on the same item if it's still there.
     private func render() {
         let keep = selected?.url
         rows = []
-        if q.isEmpty {
+        /// Fuzzy-filter `items` by `needle` (best first), or keep their order when the needle is empty.
+        func filter<T>(_ items: [T], _ needle: String, _ name: (T) -> String) -> [(T, FuzzyMatch?)] {
+            guard !needle.isEmpty else { return items.map { ($0, nil) } }
+            return items.compactMap { i in fuzzyMatch(needle, name(i)).map { (i, $0) } }.sorted { $0.1!.score > $1.1!.score }
+        }
+        if case .headings(let needle) = mode {
+            rows = filter(headings, needle, \.title).map { .heading($0.0, $0.1) }
+            status.stringValue = headings.isEmpty ? "No headings in this note" : count(rows.count, "heading")
+        } else if case .commands(let needle) = mode {
+            rows = filter(Array(commands.indices), needle) { commands[$0].title }.map { .command($0.0, $0.1) }
+            status.stringValue = count(rows.count, "command")
+        } else if q.isEmpty {
             let fileRows: [Row] = files.map { .file($0, nil, everywhere: false) }
             let folderRows: [Row] = folders.map { .folder($0, nil) }
             rows = fileRows + folderRows
@@ -193,7 +237,7 @@ import MarkCore
         }
         table.reloadData()
         empty.isHidden = !rows.isEmpty
-        select(rows.firstIndex { keep != nil && $0.url == keep } ?? rows.firstIndex { $0.url != nil })
+        select(rows.firstIndex { keep != nil && $0.url == keep } ?? rows.firstIndex { !$0.isHeader })
     }
 
     private func count(_ n: Int, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }
@@ -230,7 +274,7 @@ import MarkCore
 
     private func move(_ delta: Int) {
         var i = table.selectedRow
-        repeat { i += delta } while rows.indices.contains(i) && rows[i].url == nil // skip section headers
+        repeat { i += delta } while rows.indices.contains(i) && rows[i].isHeader // skip section headers
         if rows.indices.contains(i) { select(i) }
     }
 
@@ -245,13 +289,13 @@ import MarkCore
     // MARK: Table
 
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
-    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { rows[row].url != nil }
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { !rows[row].isHeader }
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { SubtleRowView() }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         switch rows[row] {
         case .header: 30
-        case .folder: 38
+        case .folder, .heading, .command: 38
         case .file: 48
         }
     }
@@ -264,6 +308,10 @@ import MarkCore
             return cell([l], icon: nil, trailing: nil, inset: 14)
         case .folder(let url, let match):
             return cell([title(url.lastPathComponent, match)], icon: "folder", trailing: "›")
+        case .heading(let h, let match):
+            return cell([title(h.title, match)], icon: "number", trailing: "H\(h.level)", inset: 12 + CGFloat(h.level - 1) * 16)
+        case .command(let i, let match):
+            return cell([title(commands[i].title, match)], icon: "command", trailing: commands[i].shortcut)
         case .file(let url, let match, let everywhere):
             let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
             let sub = everywhere ? displayPath(url) : modified.map { "Edited " + Self.ago.localizedString(for: $0, relativeTo: Date()) } ?? ""
@@ -338,7 +386,7 @@ import MarkCore
         crumb.lineBreakMode = .byTruncatingHead
         crumb.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         crumb.setContentHuggingPriority(.required, for: .horizontal)
-        field.placeholderString = "Search or browse…"
+        field.placeholderString = "Search · # headings · > commands"
         field.font = NSFont(name: "Geist-Regular", size: 16) ?? .systemFont(ofSize: 16)
         field.isBordered = false
         field.drawsBackground = false

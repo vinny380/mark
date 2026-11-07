@@ -1,6 +1,7 @@
 import AppKit
 import Testing
 @testable import Mark
+import MarkCore
 
 /// Renders the UI states for the launch video with Mark's real editor (typing, image drop, ⌘E, ⌘P).
 /// Opt-in: MARK_DEMO_OUT=<dir> MARK_DEMO_PHOTO=<jpg> swift test --filter renderDemoFrames
@@ -100,6 +101,14 @@ func renderDemoFrames() throws {
     for (i, q) in ["", "w", "wk", "wkn"].enumerated() {
         let rep = QuickOpen.shared.snapshot(folder: notes, query: q, appearance: NSAppearance(named: .darkAqua))!
         try rep.representation(using: .png, properties: [:])!.write(to: out.appendingPathComponent("palette-\(i).png"))
+    }
+    let sampleOutline = outline("# Launch plan\n## Goals\n## Timeline\n### Week 1\n### Week 2\n## Risks")
+    let sampleCommands: [QuickOpen.Command] = [("Toggle Preview", "⌘E"), ("New Markdown File", "⌘N"), ("Reveal in Finder", ""),
+                                               ("Copy File Path", ""), ("Bigger Text", "⌘+"), ("Smaller Text", "⌘−")].map { .init(title: $0.0, shortcut: $0.1) {} }
+    for (name, q) in [("palette-headings", "#"), ("palette-commands", ">")] {
+        let rep = QuickOpen.shared.snapshot(folder: notes, query: q, appearance: NSAppearance(named: .darkAqua),
+                                            headings: sampleOutline, commands: sampleCommands)!
+        try rep.representation(using: .png, properties: [:])!.write(to: out.appendingPathComponent(name + ".png"))
     }
     let json = try JSONSerialization.data(withJSONObject: ["contentSize": [content.bounds.width, content.bounds.height], "frames": meta], options: .prettyPrinted)
     try json.write(to: out.appendingPathComponent("frames.json"))

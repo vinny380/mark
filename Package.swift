@@ -14,6 +14,6 @@ let package = Package(
             linkerSettings: [.unsafeFlags(["-Xlinker", "-e", "-Xlinker", "_NSExtensionMain"])]
         ),
         .testTarget(name: "MarkCoreTests", dependencies: ["MarkCore"]),
-        .testTarget(name: "MarkTests", dependencies: ["Mark"]),
+        .testTarget(name: "MarkTests", dependencies: ["Mark", "MarkCore"]),
     ]
 )

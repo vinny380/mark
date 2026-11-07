@@ -35,3 +35,9 @@ import Testing
     #expect(parentFolder(of: URL(fileURLWithPath: "/Users/v")).path == "/Users")
     #expect(parentFolder(of: URL(fileURLWithPath: "/")).path == "/")
 }
+
+@Test func outlineListsHeadingsOutsideCode() {
+    let t = "# A\ntext\n## B c ##\n```\n# not\n```\n###### deep"
+    #expect(outline(t) == [Heading(title: "A", level: 1, location: 0), Heading(title: "B c", level: 2, location: 9),
+                           Heading(title: "deep", level: 6, location: 33)])
+}

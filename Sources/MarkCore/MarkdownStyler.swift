@@ -180,3 +180,23 @@ public enum MarkdownStyler {
         return out
     }
 }
+
+public struct Heading: Equatable, Sendable {
+    public let title: String
+    public let level: Int
+    /// UTF-16 offset of the heading line in the source.
+    public let location: Int
+    public init(title: String, level: Int, location: Int) { self.title = title; self.level = level; self.location = location }
+}
+
+/// The document's headings, in order (⌘P "#"). Headings inside code blocks don't count.
+public func outline(_ text: String) -> [Heading] {
+    let ns = text as NSString
+    return MarkdownStyler.runs(in: text).compactMap { run in
+        guard case .heading(let level) = run.style else { return nil }
+        let title = ns.substring(with: run.range)
+            .replacingOccurrences(of: #"^#{1,6}\s+|\s+#+\s*$"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        return Heading(title: title, level: level, location: run.range.location)
+    }
+}

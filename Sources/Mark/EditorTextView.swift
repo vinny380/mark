@@ -274,6 +274,15 @@ final class EditorTextView: NSTextView {
     @objc func toggleInlineCode(_ sender: Any?) { edit { toggleWrap($0, $1, "`") } }
     @objc func insertLink(_ sender: Any?) { edit(makeLink) }
     @objc func toggleTodoItem(_ sender: Any?) { edit(toggleTodo) }
+    /// ⌘P "#": scroll to a heading (and put the caret there while editing).
+    func jump(to heading: Heading) {
+        let r = isPreview ? (string as NSString).range(of: heading.title) : NSRange(location: heading.location, length: 0)
+        guard r.location != NSNotFound, NSMaxRange(r) <= (string as NSString).length else { return }
+        if !isPreview { setSelectedRange(r) }
+        scrollRangeToVisible(r)
+        window?.makeFirstResponder(self)
+    }
+
     @objc func moveLineUp(_ sender: Any?) { edit { moveLines($0, $1, up: true) } }
     @objc func moveLineDown(_ sender: Any?) { edit { moveLines($0, $1, up: false) } }
 

@@ -1,6 +1,7 @@
 import AppKit
 import Testing
 @testable import Mark
+import MarkCore
 
 @Test func dynamicColorsResolveOffMainThread() async {
     let colors = await [Theme.background, Theme.codeBackground]
@@ -308,4 +309,11 @@ private func attachments(_ s: NSAttributedString) -> [NSTextAttachment] {
     #expect(abs(Theme.scale - 1.1) < 0.001)
     for _ in 0..<30 { delegate.makeTextSmaller(nil) }
     #expect(Theme.scale >= 0.7) // floor
+}
+
+@MainActor @Test func jumpToHeadingPutsCaretThere() {
+    let (tv, _) = editor("# A\n\ntext\n\n## B\nmore", NSRange(location: 0, length: 0))
+    let b = outline(tv.markdown)[1]
+    tv.jump(to: b)
+    #expect(tv.selectedRange() == NSRange(location: b.location, length: 0))
 }
