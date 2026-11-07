@@ -152,3 +152,114 @@ func renderDiagramPreview() async throws {
     try rep.representation(using: .png, properties: [:])!.write(to: out.appendingPathComponent("diagrams.png"))
     #expect(!doc.textView!.textStorage!.string.contains("graph LR")) // rendered, not showing source
 }
+
+/// Second launch cut (opt-in, needs internet for Mermaid/MathJax):
+/// MARK_DEMO_OUT=<dir> MARK_DEMO_NOTES=~/Notes swift test --filter renderDemoV2 → <dir>/ui2/
+@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["MARK_DEMO_OUT"] != nil))
+func renderDemoV2() async throws {
+    let env = ProcessInfo.processInfo.environment
+    let out = URL(fileURLWithPath: env["MARK_DEMO_OUT"]!).appendingPathComponent("ui2")
+    let notes = URL(fileURLWithPath: env["MARK_DEMO_NOTES"] ?? env["MARK_DEMO_OUT"]! + "/demo-notes")
+    let marker = notes.appendingPathComponent(".mark-demo")
+    if FileManager.default.fileExists(atPath: notes.path) {
+        try #require(FileManager.default.fileExists(atPath: marker.path), "\(notes.path) exists and isn't a demo folder; refusing to touch it")
+        try FileManager.default.removeItem(at: notes)
+    }
+    try? FileManager.default.removeItem(at: out)
+    try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
+    try "".write(to: marker, atomically: true, encoding: .utf8)
+    let note = notes.appendingPathComponent("Untitled.md")
+    try "".write(to: note, atomically: true, encoding: .utf8)
+
+    let doc = MarkdownDocument()
+    try doc.read(from: Data(), ofType: "Markdown")
+    doc.fileURL = note
+    doc.makeWindowControllers()
+    let window = doc.windowControllers[0].window!
+    window.appearance = NSAppearance(named: .darkAqua)
+    window.setContentSize(NSSize(width: 1180, height: 720))
+    let tv = doc.textView!, content = window.contentView!
+
+    var meta: [[String: Any]] = []
+    func snap(_ name: String) throws {
+        content.layoutSubtreeIfNeeded()
+        let size = content.bounds.size
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
+                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                   colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        rep.size = size
+        content.cacheDisplay(in: content.bounds, to: rep)
+        try rep.representation(using: .png, properties: [:])!.write(to: out.appendingPathComponent(name + ".png"))
+        let r = content.convert(window.convertFromScreen(tv.firstRect(forCharacterRange: tv.selectedRange(), actualRange: nil)), from: nil)
+        meta.append(["name": name, "caret": [r.minX, content.isFlipped ? r.minY : size.height - r.maxY, max(r.width, 2), r.height]])
+    }
+    var n = 0
+    func step(_ action: () -> Void) throws {
+        action()
+        tv.scrollRangeToVisible(tv.selectedRange())
+        try snap(String(format: "type-%03d", n)); n += 1
+    }
+    func type(_ s: String) throws { for ch in s { try step { tv.insertText(String(ch), replacementRange: tv.selectedRange()) } } }
+
+    try snap("empty")
+    try type("# Launch plan")
+    try step { tv.insertNewline(nil) }; try step { tv.insertNewline(nil) }
+    try type("Ship **Mark** on Friday.")
+    try step { tv.insertNewline(nil) }; try step { tv.insertNewline(nil) }
+    try type("- [ ] Record the demo")
+    try step { tv.insertNewline(nil) }
+    try type("Make the icon")
+    try step { tv.toggleTodoItem(nil) }
+    tv.setSelectedRange(NSRange(location: (tv.string as NSString).length, length: 0))
+    tv.insertNewline(nil); tv.insertNewline(nil); tv.insertNewline(nil) // end the list, then a blank line
+
+    // ⌘V: a diagram, a timeline and some math, pasted in one go
+    tv.insertText("""
+    ```mermaid
+    graph LR
+      A[Write] --> B[Preview] --> C[Ship]
+    ```
+
+    ## Timeline
+
+    - **Fri**: ship it
+    - **Mon**: post the demo
+
+    ## Math
+
+    Euler, for fun: $e^{i\\pi} + 1 = 0$
+
+    $$
+    \\int_0^1 x^2\\,dx = \\frac{1}{3}
+    $$
+    """, replacementRange: tv.selectedRange())
+    tv.scrollRangeToVisible(tv.selectedRange())
+    try snap("pasted")
+
+    tv.togglePreview(nil)
+    let deadline = Date().addingTimeInterval(30)
+    while Date() < deadline && (tv.string.contains("graph LR") || tv.string.contains("frac")) {
+        try await Task.sleep(for: .milliseconds(200))
+    }
+    #expect(!tv.string.contains("graph LR"))
+    tv.scroll(.zero)
+    try snap("preview-top")
+
+    let headings = outline(tv.markdown)
+    for (i, q) in ["#", "#m", "#ma"].enumerated() {
+        let rep = QuickOpen.shared.snapshot(folder: notes, query: q, appearance: NSAppearance(named: .darkAqua), headings: headings)!
+        try rep.representation(using: .png, properties: [:])!.write(to: out.appendingPathComponent("palette-\(i).png"))
+    }
+    tv.jump(to: headings.first { $0.title == "Math" }!)
+    try snap("preview-math")
+
+    // `mark standup` from Terminal: a fresh, empty note
+    tv.togglePreview(nil)
+    tv.setMarkdown("")
+    try snap("blank")
+
+    let json = try JSONSerialization.data(withJSONObject: ["contentSize": [content.bounds.width, content.bounds.height], "frames": meta], options: .prettyPrinted)
+    try json.write(to: out.appendingPathComponent("frames.json"))
+    print("demo v2 frames:", n, "→", out.path)
+}
