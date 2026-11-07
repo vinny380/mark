@@ -7,9 +7,17 @@ import AppKit
     // ponytail: unbounded in-memory cache for the app's lifetime; add NSCache if huge image docs show up.
     private static var web: [URL: NSImage] = [:]
     private static var pending: Set<URL> = []
+    private static var local: [URL: (modified: Date, image: NSImage)] = [:]
 
     static func image(_ url: URL) -> NSImage? {
-        if url.isFileURL { return NSImage(contentsOf: url) } // always fresh: you may be editing the picture
+        if url.isFileURL {
+            // Re-read only when the file changed: edit mode asks on every keystroke, and you may be editing the picture.
+            guard let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { return nil }
+            if let hit = local[url], hit.modified == modified { return hit.image }
+            let image = NSImage(contentsOf: url)
+            local[url] = image.map { (modified, $0) }
+            return image
+        }
         if let cached = web[url] { return cached }
         guard pending.insert(url).inserted else { return nil } // loading, or failed earlier this session
         Task {

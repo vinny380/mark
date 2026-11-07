@@ -165,3 +165,84 @@ private func attachments(_ s: NSAttributedString) -> [NSTextAttachment] {
     let a = attachments(Theme.preview("![](wide.png)", base: dir, maxWidth: 600))
     #expect(a.first?.bounds.size == CGSize(width: 600, height: 300))
 }
+
+// MARK: Drag/paste images
+
+@MainActor private func noteInTempFolder(_ text: String = "hello") throws -> (MarkdownDocument, EditorTextView, URL) {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let note = dir.appendingPathComponent("note.md")
+    try text.write(to: note, atomically: true, encoding: .utf8)
+    let doc = MarkdownDocument()
+    try doc.read(from: Data(text.utf8), ofType: "Markdown")
+    doc.fileURL = note
+    doc.makeWindowControllers()
+    return (doc, doc.textView!, dir)
+}
+
+@MainActor private func pasteboard(_ write: (NSPasteboard) -> Void) -> NSPasteboard {
+    let pb = NSPasteboard(name: .init("mark-test-\(UUID().uuidString)"))
+    pb.clearContents()
+    write(pb)
+    return pb
+}
+
+@MainActor @Test func droppedImageFileIsCopiedIntoAssets() throws {
+    let (_, tv, dir) = try noteInTempFolder()
+    let elsewhere = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+    try png(40, 20, in: elsewhere, "My Pic.png")
+    let pb = pasteboard { $0.writeObjects([elsewhere.appendingPathComponent("My Pic.png") as NSURL]) }
+    #expect(tv.insertImages(from: pb, at: 5))
+    #expect(tv.string == "hello\n![My Pic](assets/My-Pic.png)\n")
+    #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("assets/My-Pic.png").path))
+}
+
+@MainActor @Test func imageAlreadyNextToTheNoteIsLinkedNotCopied() throws {
+    let (_, tv, dir) = try noteInTempFolder("")
+    try FileManager.default.createDirectory(at: dir.appendingPathComponent("img"), withIntermediateDirectories: true)
+    try png(10, 10, in: dir.appendingPathComponent("img"), "a.png")
+    let pb = pasteboard { $0.writeObjects([dir.appendingPathComponent("img/a.png") as NSURL]) }
+    #expect(tv.insertImages(from: pb, at: 0))
+    #expect(tv.string == "![a](img/a.png)\n")
+    #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("assets").path))
+}
+
+@MainActor @Test func pastedScreenshotIsSavedAsPNG() throws {
+    let (_, tv, dir) = try noteInTempFolder("")
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 8, pixelsHigh: 8, bitsPerSample: 8, samplesPerPixel: 4,
+                               hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    let pb = pasteboard { $0.setData(rep.representation(using: .png, properties: [:]), forType: .png) }
+    #expect(tv.insertImages(from: pb, at: 0))
+    let files = try FileManager.default.contentsOfDirectory(atPath: dir.appendingPathComponent("assets").path)
+    #expect(files.count == 1)
+    #expect(files.first?.hasSuffix(".png") == true)
+    #expect(tv.string == "![Pasted image](assets/\(files.first ?? ""))\n")
+}
+
+@MainActor @Test func webImageIsLinkedByURL() throws {
+    let (_, tv, dir) = try noteInTempFolder("")
+    let pb = pasteboard { $0.writeObjects([URL(string: "https://x.com/photos/cat.jpg")! as NSURL]) }
+    #expect(tv.insertImages(from: pb, at: 0))
+    #expect(tv.string == "![cat](https://x.com/photos/cat.jpg)\n")
+    #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("assets").path))
+}
+
+@MainActor @Test func plainTextAndPageLinksAreNotImages() throws {
+    let (_, tv, _) = try noteInTempFolder("")
+    #expect(!tv.insertImages(from: pasteboard { $0.setString("just text", forType: .string) }, at: 0))
+    #expect(!tv.insertImages(from: pasteboard { $0.writeObjects([URL(string: "https://x.com/article")! as NSURL]) }, at: 0))
+}
+
+@MainActor @Test func imagesShowInlineWhileEditing() throws {
+    let (_, tv, dir) = try noteInTempFolder("")
+    try png(2000, 1000, in: dir, "wide.png")
+    tv.setMarkdown("intro\n![w](wide.png)\nafter")
+    let overlays = tv.subviews.filter { $0 is ImageOverlay }
+    #expect(overlays.count == 1)
+    let frame = overlays.first?.frame ?? .zero
+    #expect(frame.width > 100 && frame.width <= 720)
+    #expect(abs(frame.width - 2 * frame.height) < 2) // keeps the 2:1 aspect ratio
+    tv.togglePreview(nil)
+    #expect(tv.subviews.filter { $0 is ImageOverlay }.isEmpty) // preview draws its own
+}

@@ -31,12 +31,23 @@ import MarkCore
         [.font: body, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
     }
 
-    static func apply(_ runs: [StyleRun], to storage: NSTextStorage, preview: Bool = false) {
+    /// `imageSize(src)` → the on-screen size of an image, if loaded; its line gets that much room below it
+    /// so the editor can float the picture there (see EditorTextView.updateImageOverlays).
+    static func apply(_ runs: [StyleRun], to storage: NSTextStorage, preview: Bool = false,
+                      imageSize: ((String) -> CGSize?)? = nil) {
         storage.beginEditing()
         storage.setAttributes(baseAttributes, range: NSRange(location: 0, length: storage.length))
         for run in runs { apply(run.style, run.range, storage, preview) }
+        for run in runs {
+            guard case .image(let src) = run.style, let size = imageSize?(src) else { continue }
+            let p = paragraph.mutableCopy() as! NSMutableParagraphStyle
+            p.paragraphSpacing = size.height + imageGap * 2
+            storage.addAttribute(.paragraphStyle, value: p, range: (storage.string as NSString).paragraphRange(for: run.range))
+        }
         storage.endEditing()
     }
+
+    static let imageGap: CGFloat = 10
 
     /// Read-only rendering for ⌘E: styled, with Markdown symbols removed, links clickable, images shown.
     /// `base` resolves relative image paths; `maxWidth` is the text column (wider images scale down).
@@ -74,12 +85,12 @@ import MarkCore
         return s
     }
 
-    private static func fit(_ size: CGSize, _ maxWidth: CGFloat) -> CGSize {
+    static func fit(_ size: CGSize, _ maxWidth: CGFloat) -> CGSize {
         guard size.width > maxWidth, size.width > 0 else { return size }
         return CGSize(width: maxWidth, height: (size.height * maxWidth / size.width).rounded())
     }
 
-    private static func rounded(_ image: NSImage, _ size: CGSize) -> NSImage {
+    static func rounded(_ image: NSImage, _ size: CGSize) -> NSImage {
         NSImage(size: size, flipped: false) { r in
             NSBezierPath(roundedRect: r, xRadius: 8, yRadius: 8).addClip()
             image.draw(in: r)

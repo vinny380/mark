@@ -1,5 +1,11 @@
 import AppKit
 import MarkCore
+import UniformTypeIdentifiers
+
+/// A picture floating in the editor. Clicks pass through to the text.
+final class ImageOverlay: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
 
 final class EditorTextView: NSTextView {
     private(set) var isPreview = false
@@ -24,19 +30,145 @@ final class EditorTextView: NSTextView {
         typingAttributes = Theme.baseAttributes
         linkTextAttributes = [.underlineStyle: NSUnderlineStyle.single.rawValue, .cursor: NSCursor.pointingHand]
         NotificationCenter.default.addObserver(self, selector: #selector(imageLoaded), name: Images.didLoad, object: nil)
+        registerForDraggedTypes([.fileURL, .URL, .png, .tiff])
+    }
+
+    private var column: CGFloat {
+        max(100, min(720, (textContainer?.size.width ?? 720) - 2 * (textContainer?.lineFragmentPadding ?? 0)))
     }
 
     private func renderPreview() {
-        let column = min(720, (textContainer?.size.width ?? 720) - 2 * (textContainer?.lineFragmentPadding ?? 0))
-        textStorage?.setAttributedString(Theme.preview(source, base: baseURL, maxWidth: max(column, 100)))
+        textStorage?.setAttributedString(Theme.preview(source, base: baseURL, maxWidth: column))
+        updateImageOverlays()
     }
 
     @objc private func imageLoaded() {
-        guard isPreview else { return }
         let anchor = scrollFraction
-        renderPreview()
+        if isPreview { renderPreview() } else { restyle() }
         scrollFraction = anchor
     }
+
+    // MARK: Images while editing
+
+    private var imageRuns: [(range: NSRange, src: String)] = []
+
+    private func loadedImage(_ src: String) -> NSImage? { imageURL(src, base: baseURL).flatMap(Images.image) }
+
+    /// Floats each loaded image in the room its line reserved (Theme.apply), so you see it while you write.
+    /// The text itself never changes, so what's saved is exactly what you typed.
+    private func updateImageOverlays() {
+        subviews.filter { $0 is ImageOverlay }.forEach { $0.removeFromSuperview() }
+        guard !isPreview, let tlm = textLayoutManager, let content = tlm.textContentManager else { return }
+        for run in imageRuns {
+            guard let image = loadedImage(run.src),
+                  let loc = content.location(content.documentRange.location, offsetBy: run.range.location) else { continue }
+            tlm.ensureLayout(for: NSTextRange(location: loc))
+            guard let fragment = tlm.textLayoutFragment(for: loc), let line = fragment.textLineFragments.last else { continue }
+            let size = Theme.fit(image.size, column)
+            let y = textContainerOrigin.y + fragment.layoutFragmentFrame.minY + line.typographicBounds.maxY + Theme.imageGap
+            let x = textContainerOrigin.x + (textContainer?.lineFragmentPadding ?? 0)
+            let view = ImageOverlay(frame: NSRect(x: x, y: y, width: size.width, height: size.height))
+            view.image = Theme.rounded(image, size)
+            view.imageScaling = .scaleAxesIndependently
+            addSubview(view)
+        }
+    }
+
+    // MARK: Drag & paste images
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let op = super.draggingEntered(sender)
+        return !isPreview && Self.hasImage(sender.draggingPasteboard) ? .copy : op
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let op = super.draggingUpdated(sender)
+        return !isPreview && Self.hasImage(sender.draggingPasteboard) ? .copy : op
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let at = characterIndexForInsertion(at: convert(sender.draggingLocation, from: nil))
+        if insertImages(from: sender.draggingPasteboard, at: at) {
+            window?.makeFirstResponder(self)
+            return true
+        }
+        return super.performDragOperation(sender)
+    }
+
+    private static let imageTypes = NSImage.imageTypes
+
+    private static func imageFiles(_ pb: NSPasteboard) -> [URL] {
+        let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        return urls.filter { UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true }
+    }
+
+    /// A dragged web image: an http(s) URL that is an image file, or comes with image data (browsers send both).
+    private static func webImage(_ pb: NSPasteboard) -> URL? {
+        guard let url = (pb.readObjects(forClasses: [NSURL.self]) as? [URL])?.first,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        let looksLikeImage = UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
+        return looksLikeImage || pb.availableType(from: [.png, .tiff]) != nil ? url : nil
+    }
+
+    private static func hasImage(_ pb: NSPasteboard) -> Bool {
+        !imageFiles(pb).isEmpty || webImage(pb) != nil || pb.availableType(from: [.png, .tiff]) != nil
+    }
+
+    /// Drop/paste: image files → copied into ./assets (or linked if already beside the note), web images →
+    /// linked by URL, raw image data (screenshots) → saved as PNG in ./assets. Returns false if there's no image.
+    @discardableResult
+    func insertImages(from pb: NSPasteboard, at index: Int) -> Bool {
+        guard isEditable else { return false }
+        var lines: [String] = []
+        let files = Self.imageFiles(pb)
+        if !files.isEmpty {
+            lines = files.compactMap(importImageFile)
+        } else if let url = Self.webImage(pb) {
+            lines = [imageMarkdown(alt: url.deletingPathExtension().lastPathComponent, path: url.absoluteString)]
+        } else if pb.string(forType: .string) == nil, let data = pb.data(forType: .png) ?? pb.data(forType: .tiff),
+                  let png = NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:]),
+                  let path = saveAsset(png) {
+            lines = [imageMarkdown(alt: "Pasted image", path: path)]
+        }
+        guard !lines.isEmpty else { return false }
+        let block = lines.joined(separator: "\n")
+        return edit { text, _ in insertBlock(text, at: min(index, (text as NSString).length), block) }
+    }
+
+    private var assetsFolder: URL? { baseURL?.appendingPathComponent("assets", isDirectory: true) }
+
+    private func importImageFile(_ file: URL) -> String? {
+        let alt = file.deletingPathExtension().lastPathComponent
+        guard let base = baseURL else { return imageMarkdown(alt: alt, path: file.path) }
+        if let rel = relativePath(of: file, inside: base) { return imageMarkdown(alt: alt, path: rel) }
+        guard let assets = assetsFolder,
+              (try? FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)) != nil else {
+            return imageMarkdown(alt: alt, path: file.path)
+        }
+        let name = assetName(for: file.lastPathComponent) { FileManager.default.fileExists(atPath: assets.appendingPathComponent($0).path) }
+        do {
+            try FileManager.default.copyItem(at: file, to: assets.appendingPathComponent(name))
+            return imageMarkdown(alt: alt, path: "assets/" + name)
+        } catch {
+            return imageMarkdown(alt: alt, path: file.path) // can't copy: link the original
+        }
+    }
+
+    private func saveAsset(_ png: Data) -> String? {
+        guard let assets = assetsFolder,
+              (try? FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)) != nil else { return nil }
+        let stamp = Self.stamp.string(from: Date())
+        let name = assetName(for: "pasted-\(stamp).png") { FileManager.default.fileExists(atPath: assets.appendingPathComponent($0).path) }
+        guard (try? png.write(to: assets.appendingPathComponent(name), options: .withoutOverwriting)) != nil else { return nil }
+        return "assets/" + name
+    }
+
+    private static let stamp: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd-HHmmss"
+        return f
+    }()
 
     override convenience init(frame: NSRect) {
         let container = NSTextContainer(size: NSSize(width: frame.width, height: .greatestFiniteMagnitude))
@@ -144,8 +276,11 @@ final class EditorTextView: NSTextView {
         if !edit({ indentList($0, $1, outdent: true) }) { super.insertBacktab(sender) }
     }
     override func paste(_ sender: Any?) {
-        let pasted = NSPasteboard.general.string(forType: .string) ?? ""
-        if !edit({ linkPaste($0, $1, pasted) }) { super.paste(sender) }
+        let pb = NSPasteboard.general
+        let pasted = pb.string(forType: .string) ?? ""
+        if edit({ linkPaste($0, $1, pasted) }) { return }
+        if selectedRange().length == 0, insertImages(from: pb, at: selectedRange().location) { return }
+        super.paste(sender)
     }
 
     /// Applies an edit as one undoable change. Returns false when there's nothing to do (caller falls back).
@@ -163,7 +298,10 @@ final class EditorTextView: NSTextView {
     override func setFrameSize(_ size: NSSize) {
         super.setFrameSize(size)
         let inset = NSSize(width: max(48, (size.width - 720) / 2), height: 56)
-        if textContainerInset != inset { textContainerInset = inset }
+        if textContainerInset != inset {
+            textContainerInset = inset
+            if !isPreview, !imageRuns.isEmpty { restyle() } // images resize with the column
+        }
     }
 
     override func didChangeText() {
@@ -174,7 +312,12 @@ final class EditorTextView: NSTextView {
     // ponytail: full restyle per keystroke; restyle only the edited paragraph if >200KB files feel slow.
     private func restyle() {
         guard !isPreview, !hasMarkedText(), let storage = textStorage else { return } // don't disturb IME composition
-        Theme.apply(MarkdownStyler.runs(in: string), to: storage)
+        let runs = MarkdownStyler.runs(in: string)
+        imageRuns = runs.compactMap { if case .image(let src) = $0.style { ($0.range, src) } else { nil } }
+        Theme.apply(runs, to: storage) { [column] src in
+            self.loadedImage(src).map { Theme.fit($0.size, column) }
+        }
         typingAttributes = Theme.baseAttributes
+        updateImageOverlays()
     }
 }
