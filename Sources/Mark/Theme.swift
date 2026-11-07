@@ -2,12 +2,12 @@ import AppKit
 import MarkCore
 
 @MainActor enum Theme {
-    private static func hex(_ v: Int) -> NSColor {
+    nonisolated private static func hex(_ v: Int) -> NSColor {
         NSColor(srgbRed: CGFloat((v >> 16) & 0xff) / 255, green: CGFloat((v >> 8) & 0xff) / 255,
                 blue: CGFloat(v & 0xff) / 255, alpha: 1)
     }
-    private static func dynamic(light: Int, dark: Int) -> NSColor {
-        NSColor(name: nil) { $0.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? hex(dark) : hex(light) }
+    nonisolated private static func dynamic(light: Int, dark: Int) -> NSColor {
+        NSColor(name: nil) { @Sendable in $0.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? hex(dark) : hex(light) }
     }
     private static func font(_ name: String, _ size: CGFloat, _ weight: NSFont.Weight = .regular) -> NSFont {
         NSFont(name: name, size: size) ?? .systemFont(ofSize: size, weight: weight)

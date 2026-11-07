@@ -77,6 +77,7 @@ import MarkCore
     main.addItem(submenu("File", [
         item("New", #selector(AppDelegate.newMarkdownFile(_:)), "n"),
         item("Open…", #selector(NSDocumentController.openDocument(_:)), "o"),
+        item("Save", #selector(NSDocument.save(_:)), "s"),
         .separator(),
         item("Close", #selector(NSWindow.performClose(_:)), "w"),
         item("Rename…", #selector(NSDocument.rename(_:))),
