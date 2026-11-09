@@ -347,3 +347,15 @@ private func runMarkCLI(_ args: [String]) throws -> (out: String, dir: URL) {
 @Test func markCLIWithoutArgumentsJustOpensMark() throws {
     #expect(try runMarkCLI([]).out == "-a Mark\n")
 }
+
+@MainActor @Test func jumpBringsHeadingToTheTop() throws {
+    let lines = (1...80).map { "line \($0)" }.joined(separator: "\n")
+    let (doc, tv, _) = try noteInTempFolder("")
+    tv.setMarkdown("# Top\n\n\(lines)\n\n## Target\n\n\(lines)") // text after it, so it can reach the top
+    doc.windowControllers[0].window!.setContentSize(NSSize(width: 900, height: 500))
+    tv.jump(to: outline(tv.markdown).last!)
+    let y = tv.firstRect(forCharacterRange: tv.selectedRange(), actualRange: nil)
+    let top = tv.window!.convertToScreen(tv.convert(tv.visibleRect, to: nil)).maxY // screen coords: y grows upward
+    #expect(top - y.maxY < 120) // heading sits near the top of the visible area
+    #expect(top - y.maxY > 0)
+}

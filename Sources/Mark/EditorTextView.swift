@@ -279,7 +279,17 @@ final class EditorTextView: NSTextView {
         let r = isPreview ? (string as NSString).range(of: heading.title) : NSRange(location: heading.location, length: 0)
         guard r.location != NSNotFound, NSMaxRange(r) <= (string as NSString).length else { return }
         if !isPreview { setSelectedRange(r) }
-        scrollRangeToVisible(r)
+        // Put the heading at the top (like Notion/VS Code), not just somewhere on screen.
+        if let tlm = textLayoutManager, let cm = tlm.textContentManager,
+           let loc = cm.location(cm.documentRange.location, offsetBy: r.location),
+           let upTo = NSTextRange(location: cm.documentRange.location, end: loc) {
+            tlm.ensureLayout(for: upTo) // real heights above it, not estimates
+            if let fragment = tlm.textLayoutFragment(for: loc) {
+                scroll(NSPoint(x: 0, y: max(0, textContainerOrigin.y + fragment.layoutFragmentFrame.minY - 24)))
+            }
+        } else {
+            scrollRangeToVisible(r)
+        }
         window?.makeFirstResponder(self)
     }
 
