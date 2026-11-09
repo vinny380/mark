@@ -4,8 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-swift build -c release
-BIN=$(swift build -c release --show-bin-path)
+# -Osize + stripped symbols: smallest binaries (Mark stays under 1 MB)
+swift build -c release -Xswiftc -Osize
+BIN=$(swift build -c release -Xswiftc -Osize --show-bin-path)
 APP=build/Mark.app
 EXT="$APP/Contents/PlugIns/MarkFinder.appex"
 
@@ -18,6 +19,8 @@ cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 cp scripts/mark "$APP/Contents/Resources/mark"
 cp "$BIN/MarkFinder" "$EXT/Contents/MacOS/"
 cp Resources/MarkFinder-Info.plist "$EXT/Contents/Info.plist"
+
+strip -x "$APP/Contents/MacOS/Mark" "$EXT/Contents/MacOS/MarkFinder"
 
 # Ad-hoc signing (no developer certificate). Extension first: it must be sandboxed.
 codesign --force -s - --entitlements Resources/MarkFinder.entitlements "$EXT"

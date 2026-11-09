@@ -9,7 +9,7 @@ let package = Package(
         .executableTarget(name: "Mark", dependencies: ["MarkCore"]),
         .executableTarget(
             name: "MarkFinder",
-            dependencies: ["MarkCore"],
+            dependencies: [], // standalone on purpose: linking MarkCore would add its whole text engine to the extension
             swiftSettings: [.unsafeFlags(["-application-extension"])],
             linkerSettings: [.unsafeFlags(["-Xlinker", "-e", "-Xlinker", "_NSExtensionMain"])]
         ),

@@ -1,6 +1,5 @@
 import Cocoa
 import FinderSync
-import MarkCore
 
 /// Adds "New Markdown File" to Finder's right-click menu on empty space (Desktop + every folder).
 /// Sandboxed, so it only asks the Mark app to create the file via `mark://new?dir=…`.
@@ -22,4 +21,14 @@ import MarkCore
         guard let dir = FIFinderSyncController.default().targetedURL() else { return }
         NSWorkspace.shared.open(newFileRequestURL(directory: dir))
     }
+}
+
+/// `mark://new?dir=<path>`. Same contract as MarkCore.newFileRequestURL (copied to keep the extension tiny;
+/// MarkCoreTests.finderExtensionBuildsTheSameRequest keeps the two in sync).
+func newFileRequestURL(directory: URL) -> URL {
+    var c = URLComponents()
+    c.scheme = "mark"
+    c.host = "new"
+    c.queryItems = [URLQueryItem(name: "dir", value: directory.path)]
+    return c.url!
 }

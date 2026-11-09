@@ -49,3 +49,15 @@ private func tempDir(_ name: String = "dir") throws -> URL {
     ]
     for s in bad { #expect(directory(fromNewFileRequest: URL(string: s)!) == nil, "\(s)") }
 }
+
+/// The Finder extension carries its own copy of newFileRequestURL; it must stay byte-for-byte the same function.
+@Test func finderExtensionBuildsTheSameRequest() throws {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    func body(_ file: String) throws -> String {
+        let s = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
+        let start = try #require(s.range(of: "func newFileRequestURL(directory: URL) -> URL {"))
+        let end = try #require(s.range(of: "return c.url!", range: start.upperBound..<s.endIndex))
+        return String(s[start.lowerBound..<end.upperBound])
+    }
+    #expect(try body("Sources/MarkFinder/FinderSync.swift") == body("Sources/MarkCore/NewFile.swift").replacingOccurrences(of: "public func", with: "func"))
+}
