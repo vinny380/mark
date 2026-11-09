@@ -269,7 +269,9 @@ func renderDemoV2() async throws {
 @MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["MARK_DEMO_OUT"] != nil))
 func renderDemoV3() async throws {
     let env = ProcessInfo.processInfo.environment
-    let out = URL(fileURLWithPath: env["MARK_DEMO_OUT"]!).appendingPathComponent("ui3")
+    let light = env["MARK_DEMO_APPEARANCE"] == "light"           // MARK_DEMO_APPEARANCE=light → <dir>/ui3-light
+    let appearance = NSAppearance(named: light ? .aqua : .darkAqua)
+    let out = URL(fileURLWithPath: env["MARK_DEMO_OUT"]!).appendingPathComponent(light ? "ui3-light" : "ui3")
     let notes = URL(fileURLWithPath: env["MARK_DEMO_NOTES"] ?? env["MARK_DEMO_OUT"]! + "/demo-notes")
     let marker = notes.appendingPathComponent(".mark-demo")
     if FileManager.default.fileExists(atPath: notes.path) {
@@ -288,7 +290,7 @@ func renderDemoV3() async throws {
     doc.fileURL = note
     doc.makeWindowControllers()
     let window = doc.windowControllers[0].window!
-    window.appearance = NSAppearance(named: .darkAqua)
+    window.appearance = appearance
     window.setContentSize(NSSize(width: 1180, height: 720))
     let tv = doc.textView!, content = window.contentView!
 
@@ -373,7 +375,7 @@ func renderDemoV3() async throws {
     try snap("preview-top")
     let headings = outline(tv.markdown)
     for (i, q) in ["#", "#p", "#ph"].enumerated() {
-        let rep = QuickOpen.shared.snapshot(folder: notes, query: q, appearance: NSAppearance(named: .darkAqua), headings: headings)!
+        let rep = QuickOpen.shared.snapshot(folder: notes, query: q, appearance: appearance, headings: headings)!
         try rep.representation(using: .png, properties: [:])!.write(to: out.appendingPathComponent("palette-\(i).png"))
     }
     tv.jump(to: headings.first { $0.title == "Photo" }!)            // ⌘P # → ↩
