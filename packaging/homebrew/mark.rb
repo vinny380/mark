@@ -2,7 +2,7 @@
 # Update version + sha256 from `scripts/release.sh` for each release.
 cask "mark" do
   version "1.0.0"
-  sha256 "b8f8b0f601bf60afdfe42750a2c23398f642a2116cc6adbb6f4f016b0f4bea71"
+  sha256 "b8ee1695a93c3f7307cc5eaac9d799755a0c5fbe7278bb17510aabd965071ed5"
 
   url "https://github.com/vinny380/mark/releases/download/v#{version}/Mark-#{version}.zip"
   name "Mark"
@@ -15,7 +15,7 @@ cask "mark" do
   end
 
   depends_on arch: :arm64
-  depends_on macos: ">= :tahoe"
+  depends_on macos: :tahoe
 
   app "Mark.app"
   binary "#{appdir}/Mark.app/Contents/Resources/mark"
